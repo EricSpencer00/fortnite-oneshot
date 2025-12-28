@@ -16,15 +16,16 @@ export class Player {
         this.alive = true;
         this.kills = 0;
         
-        // Movement
+        // Movement - tuned for smooth gameplay
         this.position = new THREE.Vector3(0, 1, 0);
         this.velocity = new THREE.Vector3();
-        this.moveSpeed = 8;
-        this.sprintMultiplier = 1.6;
-        this.jumpForce = 12;
-        this.gravity = 30;
+        this.moveSpeed = 7; // Slightly slower for control
+        this.sprintMultiplier = 1.5;
+        this.jumpForce = 10; // Lower jump
+        this.gravity = 25; // Less floaty
         this.isGrounded = false;
         this.isSprinting = false;
+        this.groundFriction = 0.88; // Smooth deceleration
         
         // Physics
         this.radius = 0.5;
@@ -103,9 +104,9 @@ export class Player {
                 deltaTime * 10
             );
         } else {
-            // Decelerate
-            this.velocity.x *= 0.9;
-            this.velocity.z *= 0.9;
+            // Smooth deceleration using friction
+            this.velocity.x *= this.groundFriction;
+            this.velocity.z *= this.groundFriction;
         }
         
         // Jumping

@@ -50,12 +50,14 @@ export class Bot {
         this.patrolPoint = null;
         this.lastKnownPlayerPos = null;
         
-        // Combat
+        // Combat - balanced for fair gameplay
         this.weaponType = randomFromArray(['AR', 'SHOTGUN', 'SMG']);
         this.weapon = new Weapon(this.weaponType, scene);
-        this.accuracy = randomRange(0.3, 0.7); // How accurate the bot is
-        this.reactionTime = randomRange(0.3, 0.8);
+        this.accuracy = randomRange(0.15, 0.45); // Reduced accuracy - was 0.3-0.7
+        this.reactionTime = randomRange(0.8, 1.5); // Slower reactions - was 0.3-0.8
         this.reactionTimer = 0;
+        this.shootCooldown = 0; // Extra delay between bursts
+        this.burstCount = 0; // Limit burst fire
         
         // Create mesh
         this.createMesh();
@@ -133,6 +135,7 @@ export class Bot {
         
         this.stateTimer -= deltaTime;
         this.reactionTimer -= deltaTime;
+        if (this.shootCooldown > 0) this.shootCooldown -= deltaTime;
         
         // Update weapon
         this.weapon.update(deltaTime, currentTime);
@@ -313,6 +316,7 @@ export class Bot {
     shoot(currentTime, player) {
         if (!this.alive || this.reactionTimer > 0) return null;
         if (!this.weapon.canFire(currentTime)) return null;
+        if (this.shootCooldown > 0) return null;
         
         const playerPos = player.getPosition();
         const dist = this.position.distanceTo(playerPos);
@@ -320,18 +324,29 @@ export class Bot {
         // Don't shoot if too far for weapon
         if (dist > this.weapon.config.range) return null;
         
-        // Add inaccuracy
+        // Random chance to not shoot (hesitation)
+        if (Math.random() < 0.3) return null;
+        
+        // Add inaccuracy - more at distance
         const origin = this.position.clone();
         origin.y += 1.5;
         
         const direction = playerPos.clone().add(new THREE.Vector3(0, 1, 0)).sub(origin).normalize();
         
-        // Apply bot accuracy
-        const inaccuracy = (1 - this.accuracy) * 0.2;
+        // Apply bot accuracy with distance falloff
+        const distancePenalty = Math.min(1, dist / 50) * 0.15;
+        const inaccuracy = (1 - this.accuracy) * 0.25 + distancePenalty;
         direction.x += (Math.random() - 0.5) * inaccuracy;
         direction.y += (Math.random() - 0.5) * inaccuracy;
         direction.z += (Math.random() - 0.5) * inaccuracy;
         direction.normalize();
+        
+        // Burst fire limiter
+        this.burstCount++;
+        if (this.burstCount >= 3 + Math.floor(Math.random() * 4)) {
+            this.shootCooldown = randomRange(0.5, 1.5); // Pause between bursts
+            this.burstCount = 0;
+        }
         
         return this.weapon.fire(currentTime, origin, direction);
     }

@@ -352,6 +352,51 @@
             color: #3498db;
         }
 
+        /* Damage Direction Indicator */
+        #damage-direction {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            pointer-events: none;
+        }
+
+        .damage-arc {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 6px;
+            height: 60px;
+            margin-left: -3px;
+            background: linear-gradient(to bottom, rgba(255, 0, 0, 0.9), rgba(255, 0, 0, 0));
+            border-radius: 3px;
+            transform-origin: center 100px;
+            opacity: 0;
+            animation: damageFade 1s ease-out forwards;
+        }
+
+        @keyframes damageFade {
+            0% { opacity: 1; }
+            70% { opacity: 0.8; }
+            100% { opacity: 0; }
+        }
+
+        /* Low health vignette */
+        #low-health-vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 40%, rgba(139, 0, 0, 0.6) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 99;
+        }
+
         /* Mini Map */
         #minimap-container {
             position: absolute;
@@ -819,6 +864,12 @@
     <div id="game-container"></div>
 
     <div id="hud">
+        <!-- Low Health Vignette -->
+        <div id="low-health-vignette"></div>
+        
+        <!-- Damage Direction Indicator -->
+        <div id="damage-direction"></div>
+        
         <!-- Health and Shield -->
         <div id="health-shield-container">
             <div class="bar-container">

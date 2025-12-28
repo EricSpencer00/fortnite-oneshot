@@ -65,6 +65,54 @@ export class HUD {
         this.busUI = document.getElementById('bus-ui');
         this.gliderUI = document.getElementById('glider-ui');
         this.altitudeDisplay = document.getElementById('altitude-display');
+        
+        // Damage direction indicator
+        this.damageDirection = document.getElementById('damage-direction');
+        this.lowHealthVignette = document.getElementById('low-health-vignette');
+    }
+    
+    // Show damage direction arc pointing toward attacker
+    showDamageDirection(playerYaw, attackerPosition, playerPosition) {
+        // Calculate angle from player to attacker
+        const dx = attackerPosition.x - playerPosition.x;
+        const dz = attackerPosition.z - playerPosition.z;
+        const attackAngle = Math.atan2(dx, dz);
+        
+        // Convert to screen angle (relative to player's view direction)
+        let relativeAngle = attackAngle - playerYaw;
+        
+        // Normalize to -PI to PI
+        while (relativeAngle > Math.PI) relativeAngle -= Math.PI * 2;
+        while (relativeAngle < -Math.PI) relativeAngle += Math.PI * 2;
+        
+        // Convert to degrees for CSS
+        const degrees = (relativeAngle * 180 / Math.PI) + 180;
+        
+        // Create damage arc element
+        const arc = document.createElement('div');
+        arc.className = 'damage-arc';
+        arc.style.transform = `rotate(${degrees}deg)`;
+        
+        this.damageDirection.appendChild(arc);
+        
+        // Remove after animation
+        setTimeout(() => {
+            if (arc.parentNode) {
+                arc.parentNode.removeChild(arc);
+            }
+        }, 1000);
+    }
+    
+    // Update low health vignette effect
+    updateHealthVignette(health, maxHealth) {
+        const healthPercent = health / maxHealth;
+        if (healthPercent < 0.3) {
+            // Pulse effect when low health
+            const intensity = (0.3 - healthPercent) / 0.3;
+            this.lowHealthVignette.style.opacity = intensity * (0.5 + Math.sin(Date.now() * 0.005) * 0.2);
+        } else {
+            this.lowHealthVignette.style.opacity = 0;
+        }
     }
     
     // Material updates

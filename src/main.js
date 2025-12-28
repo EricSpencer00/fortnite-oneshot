@@ -654,7 +654,14 @@ class Game {
                     this.player.takeDamage(shot.damage);
                     this.projectileManager.createImpact(hit.point, true);
                     
-                    // Show damage indicator
+                    // Show damage direction indicator
+                    this.hud.showDamageDirection(
+                        this.camera.yaw,
+                        bot.position,
+                        this.player.getPosition()
+                    );
+                    
+                    // Show damage number
                     this.hud.showDamageIndicator(
                         shot.damage,
                         window.innerWidth / 2 + (Math.random() - 0.5) * 100,
@@ -671,6 +678,9 @@ class Game {
         // Health and shield
         this.hud.updateHealth(this.player.health, this.player.maxHealth);
         this.hud.updateShield(this.player.shield, this.player.maxShield);
+        
+        // Update low health vignette
+        this.hud.updateHealthVignette(this.player.health, this.player.maxHealth);
         
         // Ammo
         const weapon = this.player.weaponManager.currentWeapon;

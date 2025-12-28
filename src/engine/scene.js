@@ -7,8 +7,8 @@ export class GameScene {
         // Sky color gradient
         this.scene.background = new THREE.Color(0x87CEEB);
         
-        // Fog for atmosphere
-        this.scene.fog = new THREE.FogExp2(0x88BBEE, 0.002);
+        // Lighter fog for better visibility
+        this.scene.fog = new THREE.FogExp2(0x88BBEE, 0.0015);
         
         this.setupLighting();
     }
@@ -23,15 +23,15 @@ export class GameScene {
         const sunLight = new THREE.DirectionalLight(0xFFFFDD, 1.2);
         sunLight.position.set(100, 150, 50);
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.width = 1024; // Reduced for performance
+        sunLight.shadow.mapSize.height = 1024;
         sunLight.shadow.camera.near = 10;
-        sunLight.shadow.camera.far = 500;
-        sunLight.shadow.camera.left = -150;
-        sunLight.shadow.camera.right = 150;
-        sunLight.shadow.camera.top = 150;
-        sunLight.shadow.camera.bottom = -150;
-        sunLight.shadow.bias = -0.0005;
+        sunLight.shadow.camera.far = 300; // Reduced shadow distance
+        sunLight.shadow.camera.left = -100;
+        sunLight.shadow.camera.right = 100;
+        sunLight.shadow.camera.top = 100;
+        sunLight.shadow.camera.bottom = -100;
+        sunLight.shadow.bias = -0.001;
         this.scene.add(sunLight);
         
         // Fill light
