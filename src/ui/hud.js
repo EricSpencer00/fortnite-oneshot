@@ -12,6 +12,7 @@ export class HUD {
         this.ammoReserve = document.getElementById('ammo-reserve');
         
         this.weaponSlots = [
+            document.getElementById('slot-0'),
             document.getElementById('slot-1'),
             document.getElementById('slot-2'),
             document.getElementById('slot-3')
@@ -40,6 +41,77 @@ export class HUD {
         this.minimapCanvas.height = 180;
         
         this.killFeedEntries = [];
+        
+        // Material displays
+        this.woodCount = document.getElementById('wood-count');
+        this.stoneCount = document.getElementById('stone-count');
+        this.metalCount = document.getElementById('metal-count');
+        
+        // Build mode elements
+        this.buildModeOverlay = document.getElementById('build-mode-overlay');
+        this.buildSlots = [
+            document.getElementById('build-wall'),
+            document.getElementById('build-floor'),
+            document.getElementById('build-stair'),
+            document.getElementById('build-cone')
+        ];
+        this.materialTypeIndicator = document.getElementById('material-type-indicator');
+        
+        // Edit mode elements
+        this.editModeOverlay = document.getElementById('edit-mode-overlay');
+        this.editCells = document.querySelectorAll('.edit-cell');
+        
+        // Battle bus / glider
+        this.busUI = document.getElementById('bus-ui');
+        this.gliderUI = document.getElementById('glider-ui');
+        this.altitudeDisplay = document.getElementById('altitude-display');
+    }
+    
+    // Material updates
+    updateMaterials(wood, stone, metal) {
+        this.woodCount.textContent = wood;
+        this.stoneCount.textContent = stone;
+        this.metalCount.textContent = metal;
+    }
+    
+    // Build mode UI
+    showBuildMode(show) {
+        this.buildModeOverlay.classList.toggle('show', show);
+    }
+    
+    updateBuildSlot(index) {
+        this.buildSlots.forEach((slot, i) => {
+            slot.classList.toggle('active', i === index);
+        });
+    }
+    
+    updateMaterialType(materialName, cost) {
+        this.materialTypeIndicator.textContent = `${materialName.toUpperCase()} (${cost})`;
+    }
+    
+    // Edit mode UI
+    showEditMode(show) {
+        this.editModeOverlay.classList.toggle('show', show);
+    }
+    
+    updateEditGrid(selectedCells) {
+        this.editCells.forEach((cell, i) => {
+            cell.classList.toggle('selected', selectedCells[i]);
+        });
+    }
+    
+    // Battle bus UI
+    showBusUI(show) {
+        this.busUI.classList.toggle('show', show);
+    }
+    
+    // Glider UI
+    showGliderUI(show) {
+        this.gliderUI.classList.toggle('show', show);
+    }
+    
+    updateAltitude(altitude) {
+        this.altitudeDisplay.textContent = `${Math.round(altitude)}m`;
     }
     
     updateHealth(health, maxHealth) {

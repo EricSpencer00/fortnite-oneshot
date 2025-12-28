@@ -162,6 +162,196 @@
             text-transform: uppercase;
         }
 
+        /* Materials Display */
+        #materials-display {
+            position: absolute;
+            bottom: 100px;
+            left: 40px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .material-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 15px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .material-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .material-count {
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .material-item.wood { border-color: #8B4513; }
+        .material-item.stone { border-color: #808080; }
+        .material-item.metal { border-color: #4682B4; }
+
+        /* Build Mode UI */
+        #build-mode-overlay {
+            position: absolute;
+            bottom: 170px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #build-mode-overlay.show {
+            display: flex;
+        }
+
+        #build-mode-label {
+            color: #f1c40f;
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        #build-slots {
+            display: flex;
+            gap: 8px;
+        }
+
+        .build-slot {
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .build-slot.active {
+            border-color: #f1c40f;
+            background: rgba(241, 196, 15, 0.3);
+        }
+
+        .build-slot .build-icon {
+            font-size: 24px;
+        }
+
+        .build-slot .build-key {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        #material-type-indicator {
+            margin-top: 8px;
+            padding: 5px 15px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+        }
+
+        /* Edit Mode UI */
+        #edit-mode-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #f1c40f;
+        }
+
+        #edit-mode-overlay.show {
+            display: block;
+        }
+
+        #edit-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 40px);
+            gap: 4px;
+        }
+
+        .edit-cell {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            cursor: pointer;
+        }
+
+        .edit-cell.selected {
+            background: rgba(241, 196, 15, 0.8);
+        }
+
+        #edit-hint {
+            color: white;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        /* Battle Bus UI */
+        #bus-ui {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+        }
+
+        #bus-ui.show {
+            display: block;
+        }
+
+        #bus-text {
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            margin-bottom: 20px;
+        }
+
+        #jump-prompt {
+            color: #f1c40f;
+            font-size: 24px;
+            animation: pulse 1s infinite;
+        }
+
+        /* Glider UI */
+        #glider-ui {
+            position: absolute;
+            bottom: 300px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        #glider-ui.show {
+            display: block;
+        }
+
+        #altitude-display {
+            font-size: 36px;
+            color: #3498db;
+        }
+
         /* Mini Map */
         #minimap-container {
             position: absolute;
@@ -621,7 +811,8 @@
         <div id="controls-info">
             WASD - Move | Mouse - Look | LMB - Shoot | RMB - Aim<br>
             R - Reload | Shift - Sprint | Space - Jump | 1/2/3 - Weapons<br>
-            E - Pick Up Items
+            E - Pick Up Items | Q - Toggle Build Mode | F1-F4 - Build Pieces<br>
+            Right Click (Build) - Cycle Materials | G - Edit Build
         </div>
     </div>
 
@@ -655,18 +846,90 @@
 
         <!-- Weapon Slots -->
         <div id="weapon-slots">
-            <div class="weapon-slot active" id="slot-1">
+            <div class="weapon-slot active" id="slot-0">
                 <span class="key">1</span>
+                <span class="weapon-name">⛏️</span>
+            </div>
+            <div class="weapon-slot" id="slot-1">
+                <span class="key">2</span>
                 <span class="weapon-name">AR</span>
             </div>
             <div class="weapon-slot" id="slot-2">
-                <span class="key">2</span>
+                <span class="key">3</span>
                 <span class="weapon-name">Shotgun</span>
             </div>
             <div class="weapon-slot" id="slot-3">
-                <span class="key">3</span>
+                <span class="key">4</span>
                 <span class="weapon-name">SMG</span>
             </div>
+        </div>
+
+        <!-- Materials Display -->
+        <div id="materials-display">
+            <div class="material-item wood">
+                <span class="material-icon">🪵</span>
+                <span class="material-count" id="wood-count">0</span>
+            </div>
+            <div class="material-item stone">
+                <span class="material-icon">🪨</span>
+                <span class="material-count" id="stone-count">0</span>
+            </div>
+            <div class="material-item metal">
+                <span class="material-icon">🔩</span>
+                <span class="material-count" id="metal-count">0</span>
+            </div>
+        </div>
+
+        <!-- Build Mode UI -->
+        <div id="build-mode-overlay">
+            <div id="build-mode-label">BUILD MODE</div>
+            <div id="build-slots">
+                <div class="build-slot active" id="build-wall">
+                    <span class="build-icon">▯</span>
+                    <span class="build-key">F1</span>
+                </div>
+                <div class="build-slot" id="build-floor">
+                    <span class="build-icon">▭</span>
+                    <span class="build-key">F2</span>
+                </div>
+                <div class="build-slot" id="build-stair">
+                    <span class="build-icon">⟋</span>
+                    <span class="build-key">F3</span>
+                </div>
+                <div class="build-slot" id="build-cone">
+                    <span class="build-icon">△</span>
+                    <span class="build-key">F4</span>
+                </div>
+            </div>
+            <div id="material-type-indicator">WOOD (100)</div>
+        </div>
+
+        <!-- Edit Mode UI -->
+        <div id="edit-mode-overlay">
+            <div id="edit-grid">
+                <div class="edit-cell" data-index="0"></div>
+                <div class="edit-cell" data-index="1"></div>
+                <div class="edit-cell" data-index="2"></div>
+                <div class="edit-cell" data-index="3"></div>
+                <div class="edit-cell" data-index="4"></div>
+                <div class="edit-cell" data-index="5"></div>
+                <div class="edit-cell" data-index="6"></div>
+                <div class="edit-cell" data-index="7"></div>
+                <div class="edit-cell" data-index="8"></div>
+            </div>
+            <div id="edit-hint">Click cells to edit | G to confirm | ESC to cancel</div>
+        </div>
+
+        <!-- Battle Bus UI -->
+        <div id="bus-ui">
+            <div id="bus-text">ON THE BATTLE BUS</div>
+            <div id="jump-prompt">Press SPACE to jump!</div>
+        </div>
+
+        <!-- Glider UI -->
+        <div id="glider-ui">
+            <div>ALTITUDE</div>
+            <div id="altitude-display">0m</div>
         </div>
 
         <!-- Mini Map -->

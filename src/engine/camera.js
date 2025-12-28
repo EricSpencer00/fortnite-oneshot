@@ -45,7 +45,7 @@ export class ThirdPersonCamera {
     
     handleMouseMove(dx, dy) {
         this.yaw -= dx * this.sensitivity;
-        this.pitch -= dy * this.sensitivity;
+        this.pitch += dy * this.sensitivity; // Fixed: was inverted
         
         // Clamp pitch
         this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
@@ -121,6 +121,18 @@ export class ThirdPersonCamera {
         direction.applyAxisAngle(new THREE.Vector3(1, 0, 0), this.pitch);
         direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
         return direction.normalize();
+    }
+    
+    getLookDirection() {
+        return this.getAimDirection();
+    }
+    
+    updateTarget(position) {
+        if (!this.target) {
+            this.target = { position: position.clone() };
+        } else {
+            this.target.position.copy(position);
+        }
     }
     
     get threeCamera() {

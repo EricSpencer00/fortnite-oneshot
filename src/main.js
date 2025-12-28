@@ -10,7 +10,7 @@ import { GameLoop } from './engine/loop.js';
 import { input } from './utils/input.js';
 
 // World
-import { Island } from './world/island.js';
+import { Island, HARVEST_TYPES } from './world/island.js';
 import { Buildings } from './world/buildings.js';
 import { SpawnManager } from './world/spawn.js';
 
@@ -21,11 +21,22 @@ import { ProjectileManager } from './game/projectile.js';
 import { PickupManager } from './game/pickups.js';
 import { Storm } from './game/storm.js';
 import { Match } from './game/match.js';
+import { BattleBus, PlayerDrop, DropState } from './game/battlebus.js';
+import { BuildingSystem, MATERIAL_TYPES, BUILD_TYPES } from './game/building.js';
 
 // UI
 import { HUD } from './ui/hud.js';
 import { Crosshair } from './ui/crosshair.js';
 import { Menu } from './ui/menu.js';
+
+// Game phases
+const GamePhase = {
+    MENU: 'menu',
+    BUS: 'bus',
+    DROPPING: 'dropping',
+    PLAYING: 'playing',
+    ENDED: 'ended'
+};
 
 class Game {
     constructor() {
@@ -50,17 +61,31 @@ class Game {
         this.storm = null;
         this.match = null;
         
+        // New systems
+        this.battleBus = null;
+        this.playerDrop = null;
+        this.buildingSystem = null;
+        
+        // Player materials
+        this.materials = { wood: 50, stone: 20, metal: 10 }; // Start with some mats
+        
         // UI
         this.hud = null;
         this.crosshair = null;
         this.menu = null;
         
         // Game state
+        this.phase = GamePhase.MENU;
         this.isRunning = false;
         this.colliders = [];
+        this.isBuildMode = false;
         
         // Bot count
         this.botCount = 15;
+        
+        // Fall damage
+        this.lastGroundedY = 0;
+        this.wasGrounded = true;
         
         // Initialize
         this.init();
@@ -138,17 +163,31 @@ class Game {
         // Request pointer lock
         input.requestPointerLock(this.renderer.domElement);
         
-        // Spawn player
-        const playerSpawn = this.spawnManager.getPlayerSpawnPoint();
+        // Reset materials
+        this.materials = { wood: 50, stone: 20, metal: 10 };
+        
+        // Create battle bus
+        this.battleBus = new BattleBus(this.gameScene.threeScene, this.island.size);
+        this.battleBus.start();
+        
+        // Create player drop handler (starts on bus)
+        this.playerDrop = new PlayerDrop(this.island);
+        
+        // Create building system
+        this.buildingSystem = new BuildingSystem(this.gameScene.threeScene);
+        this.colliders.push(...this.buildingSystem.getColliders());
+        
+        // Create player (but don't position yet - will drop from bus)
         this.player = new Player(
             this.gameScene.threeScene,
             this.camera,
             this.colliders
         );
-        this.player.setPosition(playerSpawn);
+        // Start player invisible until dropped
+        this.player.mesh.visible = false;
         
-        // Spawn bots
-        const botSpawns = this.spawnManager.getBotSpawnPoints(this.botCount, playerSpawn);
+        // Spawn bots (they drop at random times)
+        const botSpawns = this.spawnManager.getBotSpawnPoints(this.botCount, new THREE.Vector3(0, 0, 0));
         this.botManager.spawnBots(botSpawns);
         
         // Spawn initial pickups
@@ -161,11 +200,15 @@ class Game {
         this.match = new Match(this);
         this.match.start(this.botCount);
         
-        // Start game
+        // Set phase to bus
+        this.phase = GamePhase.BUS;
         this.isRunning = true;
         
-        // Hide crosshair initially
-        this.crosshair.show();
+        // Hide crosshair while on bus
+        this.crosshair.hide();
+        
+        // Show bus UI
+        this.hud.showBusUI(true);
     }
     
     restartGame() {
@@ -203,83 +246,33 @@ class Game {
             this.pickupManager.dispose();
         }
         
+        if (this.battleBus) {
+            this.battleBus.dispose();
+            this.battleBus = null;
+        }
+        
+        if (this.buildingSystem) {
+            this.buildingSystem.dispose();
+            this.buildingSystem = null;
+        }
+        
+        this.playerDrop = null;
+        this.isBuildMode = false;
         this.isRunning = false;
+        this.phase = GamePhase.MENU;
     }
     
     update(deltaTime, currentTime) {
         // Always update input
         const mouseDelta = input.getMouseDelta();
         
-        // Handle camera when playing
-        if (this.isRunning && this.player && this.player.alive) {
-            // Update camera with mouse
-            this.camera.handleMouseMove(mouseDelta.x, mouseDelta.y);
-            
-            // Update player
-            this.player.update(deltaTime, input, currentTime);
-            
-            // Update camera
-            this.camera.update(this.gameScene.threeScene, this.colliders);
-            
-            // Handle shooting
-            if (input.isShooting()) {
-                this.handlePlayerShoot(currentTime);
-            }
-            
-            // Update bots
-            this.botManager.update(deltaTime, currentTime, this.player, this.camera);
-            
-            // Handle bot shooting
-            for (const bot of this.botManager.getAliveBots()) {
-                if (bot.state === 'engage') {
-                    const shots = bot.shoot(currentTime, this.player);
-                    if (shots) {
-                        this.handleBotShots(shots, bot);
-                    }
-                }
-            }
-            
-            // Update storm
-            const stormDamage = this.storm.update(deltaTime, currentTime / 1000, this.player.getPosition());
-            if (stormDamage > 0) {
-                this.player.takeDamage(stormDamage);
-                this.hud.showDamageIndicator(stormDamage, window.innerWidth / 2, window.innerHeight / 2);
-            }
-            
-            // Update pickups
-            this.pickupManager.update(deltaTime, currentTime / 1000);
-            
-            // Check for nearby pickup
-            const nearbyPickup = this.pickupManager.getNearbyPickup(this.player.getPosition());
-            this.hud.showInteractPrompt(!!nearbyPickup);
-            
-            // Handle pickup collection
-            if (input.isInteracting() && nearbyPickup) {
-                const message = this.pickupManager.collectPickup(nearbyPickup, this.player);
-                if (message) {
-                    this.hud.showPickupNotification(message);
-                }
-            }
-            
-            // Update projectiles
-            this.projectileManager.update(deltaTime);
-            
-            // Update match
-            this.match.update(deltaTime, currentTime);
-            
-            // Update HUD
-            this.updateHUD(currentTime);
-            
-            // Update crosshair
-            const moveInput = input.getMovementInput();
-            const isMoving = moveInput.x !== 0 || moveInput.z !== 0;
-            this.crosshair.update(
-                deltaTime,
-                isMoving,
-                input.isSprinting(),
-                input.isShooting(),
-                input.isAiming()
-            );
+        // Handle different game phases
+        if (this.phase === GamePhase.BUS) {
+            this.updateBusPhase(deltaTime, currentTime);
+        } else if (this.phase === GamePhase.DROPPING) {
+            this.updateDroppingPhase(deltaTime, currentTime, mouseDelta);
+        } else if (this.phase === GamePhase.PLAYING && this.player && this.player.alive) {
+            this.updatePlayingPhase(deltaTime, currentTime, mouseDelta);
         }
         
         // Reset input state
@@ -289,9 +282,239 @@ class Game {
         this.renderer.render(this.gameScene.threeScene, this.camera.threeCamera);
     }
     
+    updateBusPhase(deltaTime, currentTime) {
+        // Update battle bus
+        this.battleBus.update(deltaTime);
+        
+        // Position camera to follow bus
+        const busPos = this.battleBus.getPosition();
+        this.camera.threeCamera.position.set(busPos.x, busPos.y + 20, busPos.z + 30);
+        this.camera.threeCamera.lookAt(busPos);
+        
+        // Check for jump input
+        if (input.isJumping() && this.battleBus.canJump()) {
+            // Jump from bus
+            const dropPos = this.battleBus.getDropPosition();
+            this.playerDrop.startDrop(dropPos);
+            this.player.setPosition(dropPos);
+            this.player.mesh.visible = true;
+            this.phase = GamePhase.DROPPING;
+            
+            // Hide bus UI, show glider UI
+            this.hud.showBusUI(false);
+            this.hud.showGliderUI(true);
+        }
+        
+        // Auto-drop at end of bus path
+        if (this.battleBus.isComplete()) {
+            const dropPos = this.battleBus.getDropPosition();
+            this.playerDrop.startDrop(dropPos);
+            this.player.setPosition(dropPos);
+            this.player.mesh.visible = true;
+            this.phase = GamePhase.DROPPING;
+            
+            this.hud.showBusUI(false);
+            this.hud.showGliderUI(true);
+        }
+    }
+    
+    updateDroppingPhase(deltaTime, currentTime, mouseDelta) {
+        // Handle glider deploy input
+        if (input.isJumping() && this.playerDrop.state === DropState.SKYDIVING) {
+            this.playerDrop.deployGlider();
+        }
+        
+        // Update drop physics with input and camera yaw
+        this.playerDrop.update(deltaTime, input, this.camera.yaw);
+        
+        // Update player position
+        this.player.setPosition(this.playerDrop.position);
+        
+        // Update camera
+        this.camera.handleMouseMove(mouseDelta.x, mouseDelta.y);
+        this.camera.updateTarget(this.playerDrop.position);
+        this.camera.update(this.gameScene.threeScene, this.colliders);
+        
+        // Update altitude display
+        this.hud.updateAltitude(this.playerDrop.position.y);
+        
+        // Check if landed
+        if (this.playerDrop.state === DropState.LANDED) {
+            this.phase = GamePhase.PLAYING;
+            this.hud.showGliderUI(false);
+            this.crosshair.show();
+            this.lastGroundedY = this.player.getPosition().y;
+            this.wasGrounded = true;
+        }
+    }
+    
+    updatePlayingPhase(deltaTime, currentTime, mouseDelta) {
+        // Update camera with mouse
+        this.camera.handleMouseMove(mouseDelta.x, mouseDelta.y);
+        
+        // Handle build mode toggle
+        if (input.isToggleBuildMode()) {
+            this.isBuildMode = !this.isBuildMode;
+            this.hud.showBuildMode(this.isBuildMode);
+            if (this.isBuildMode) {
+                this.buildingSystem.showPreview(true);
+            } else {
+                this.buildingSystem.showPreview(false);
+            }
+        }
+        
+        // Handle building mode
+        if (this.isBuildMode) {
+            this.updateBuildMode(deltaTime, currentTime);
+        } else {
+            // Normal combat/movement update
+            this.updateCombatMode(deltaTime, currentTime);
+        }
+        
+        // Update player
+        this.player.update(deltaTime, input, currentTime);
+        
+        // Handle fall damage
+        this.handleFallDamage();
+        
+        // Update camera
+        this.camera.update(this.gameScene.threeScene, this.colliders);
+        
+        // Update bots
+        this.botManager.update(deltaTime, currentTime, this.player, this.camera);
+        
+        // Handle bot shooting
+        for (const bot of this.botManager.getAliveBots()) {
+            if (bot.state === 'engage') {
+                const shots = bot.shoot(currentTime, this.player);
+                if (shots) {
+                    this.handleBotShots(shots, bot);
+                }
+            }
+        }
+        
+        // Update storm
+        const stormDamage = this.storm.update(deltaTime, currentTime / 1000, this.player.getPosition());
+        if (stormDamage > 0) {
+            this.player.takeDamage(stormDamage);
+            this.hud.showDamageIndicator(stormDamage, window.innerWidth / 2, window.innerHeight / 2);
+        }
+        
+        // Update pickups
+        this.pickupManager.update(deltaTime, currentTime / 1000);
+        
+        // Check for nearby pickup
+        const nearbyPickup = this.pickupManager.getNearbyPickup(this.player.getPosition());
+        this.hud.showInteractPrompt(!!nearbyPickup);
+        
+        // Handle pickup collection
+        if (input.isInteracting() && nearbyPickup) {
+            const message = this.pickupManager.collectPickup(nearbyPickup, this.player);
+            if (message) {
+                this.hud.showPickupNotification(message);
+            }
+        }
+        
+        // Update projectiles
+        this.projectileManager.update(deltaTime);
+        
+        // Update building system preview position
+        if (this.isBuildMode) {
+            const playerPos = this.player.getPosition();
+            const lookDir = this.camera.getLookDirection();
+            this.buildingSystem.updatePreviewPosition(playerPos, lookDir, this.camera.yaw);
+        }
+        
+        // Update match
+        this.match.update(deltaTime, currentTime);
+        
+        // Update HUD
+        this.updateHUD(currentTime);
+        
+        // Update crosshair
+        const moveInput = input.getMovementInput();
+        const isMoving = moveInput.x !== 0 || moveInput.z !== 0;
+        this.crosshair.update(
+            deltaTime,
+            isMoving,
+            input.isSprinting(),
+            input.isShooting(),
+            input.isAiming()
+        );
+    }
+    
+    updateBuildMode(deltaTime, currentTime) {
+        // Build piece selection
+        const buildSwitch = input.getBuildPieceSwitch();
+        if (buildSwitch >= 0) {
+            this.buildingSystem.selectPiece(buildSwitch);
+            this.hud.updateBuildSlot(buildSwitch);
+        }
+        
+        // Rotate build
+        if (input.isRotateBuild()) {
+            this.buildingSystem.rotatePiece();
+        }
+        
+        // Cycle material
+        if (input.isCycleMaterial()) {
+            this.buildingSystem.cycleMaterial();
+            const mat = this.buildingSystem.getCurrentMaterial();
+            this.hud.updateMaterialType(mat.name, mat.cost);
+        }
+        
+        // Place build
+        if (input.isShooting()) {
+            const mat = this.buildingSystem.getCurrentMaterial();
+            const matKey = mat.name.toLowerCase();
+            
+            if (this.materials[matKey] >= mat.cost) {
+                const placed = this.buildingSystem.placePiece(this.player);
+                if (placed) {
+                    this.materials[matKey] -= mat.cost;
+                    this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
+                }
+            }
+        }
+    }
+    
+    updateCombatMode(deltaTime, currentTime) {
+        // Handle shooting
+        if (input.isShooting()) {
+            this.handlePlayerShoot(currentTime);
+        }
+    }
+    
+    handleFallDamage() {
+        const pos = this.player.getPosition();
+        const isGrounded = this.player.isGrounded;
+        
+        if (isGrounded && !this.wasGrounded) {
+            // Just landed
+            const fallHeight = this.lastGroundedY - pos.y;
+            if (fallHeight > 3) { // Minimum fall height for damage
+                const damage = Math.floor((fallHeight - 3) * 5); // 5 damage per meter over 3m
+                if (damage > 0) {
+                    this.player.takeDamage(damage);
+                    this.hud.showDamageIndicator(damage, window.innerWidth / 2, window.innerHeight / 2);
+                }
+            }
+        }
+        
+        if (isGrounded) {
+            this.lastGroundedY = pos.y;
+        }
+        
+        this.wasGrounded = isGrounded;
+    }
+    
     handlePlayerShoot(currentTime) {
         const shots = this.player.shoot(currentTime);
         if (!shots) return;
+        
+        // Check if using pickaxe
+        const weapon = this.player.weaponManager.currentWeapon;
+        const isPickaxe = weapon.config && weapon.config.isPickaxe;
         
         for (const shot of shots) {
             // Raycast for hit detection
@@ -302,17 +525,31 @@ class Game {
                 shot.range
             );
             
-            // Check against bots and world
+            // Check against bots, world, and harvestables
             const botMeshes = this.botManager.getAliveBots().map(b => b.mesh);
-            const allTargets = [...this.colliders, ...botMeshes];
+            const harvestables = this.island.getHarvestables();
+            const buildPieces = this.buildingSystem ? this.buildingSystem.getColliders() : [];
+            const allTargets = [...this.colliders, ...botMeshes, ...harvestables, ...buildPieces];
             
             const intersects = raycaster.intersectObjects(allTargets, true);
             
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // Create tracer
-                this.projectileManager.createTracer(shot.origin, hit.point);
+                // Check if hit a harvestable with pickaxe
+                if (isPickaxe) {
+                    const harvested = this.tryHarvest(hit, weapon.config.harvestDamage || 50);
+                    if (harvested) {
+                        this.projectileManager.createImpact(hit.point, false);
+                        this.hud.showHitmarker();
+                        continue;
+                    }
+                }
+                
+                // Create tracer (skip for pickaxe)
+                if (!isPickaxe) {
+                    this.projectileManager.createTracer(shot.origin, hit.point);
+                }
                 
                 // Check if hit a bot
                 let hitBot = null;
@@ -343,7 +580,7 @@ class Game {
                     // Hit world
                     this.projectileManager.createImpact(hit.point, false);
                 }
-            } else {
+            } else if (!isPickaxe) {
                 // Miss - create tracer to max range
                 const endPoint = shot.origin.clone().add(
                     shot.direction.clone().multiplyScalar(shot.range)
@@ -351,6 +588,36 @@ class Game {
                 this.projectileManager.createTracer(shot.origin, endPoint);
             }
         }
+    }
+    
+    tryHarvest(hit, damage) {
+        let obj = hit.object;
+        
+        // Walk up to find harvestable parent
+        while (obj) {
+            if (obj.userData && obj.userData.harvestable) {
+                // Found harvestable
+                obj.userData.health -= 1;
+                
+                if (obj.userData.health <= 0) {
+                    // Destroyed - give materials
+                    const harvestType = HARVEST_TYPES[obj.userData.harvestType];
+                    if (harvestType) {
+                        this.materials[harvestType.gives] += harvestType.amount;
+                        this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
+                        this.hud.showPickupNotification(`+${harvestType.amount} ${harvestType.gives.toUpperCase()}`);
+                    }
+                    
+                    // Remove the harvestable
+                    this.island.removeHarvestable(obj);
+                }
+                
+                return true;
+            }
+            obj = obj.parent;
+        }
+        
+        return false;
     }
     
     handleBotShots(shots, bot) {
@@ -407,7 +674,11 @@ class Game {
         
         // Ammo
         const weapon = this.player.weaponManager.currentWeapon;
-        this.hud.updateAmmo(weapon.ammo, weapon.reserveAmmo);
+        if (weapon.config && weapon.config.isPickaxe) {
+            this.hud.updateAmmo('∞', '');
+        } else {
+            this.hud.updateAmmo(weapon.ammo, weapon.reserveAmmo);
+        }
         
         // Weapon slot
         this.hud.updateWeaponSlot(this.player.weaponManager.currentIndex);
@@ -424,6 +695,9 @@ class Game {
         
         // Alive count
         this.hud.updateAliveCount(this.match.getAliveCount());
+        
+        // Materials
+        this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
         
         // Minimap
         this.hud.updateMinimap(

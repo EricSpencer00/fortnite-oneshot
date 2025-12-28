@@ -127,10 +127,46 @@ export class InputManager {
     }
     
     getWeaponSwitch() {
-        if (this.isKeyJustPressed('Digit1')) return 0;
-        if (this.isKeyJustPressed('Digit2')) return 1;
-        if (this.isKeyJustPressed('Digit3')) return 2;
+        if (this.isKeyJustPressed('Digit1')) return 0; // Pickaxe
+        if (this.isKeyJustPressed('Digit2')) return 1; // Weapon slot 1
+        if (this.isKeyJustPressed('Digit3')) return 2; // Weapon slot 2
+        if (this.isKeyJustPressed('Digit4')) return 3; // Weapon slot 3
+        if (this.isKeyJustPressed('Digit5')) return 4; // Weapon slot 4
+        if (this.isKeyJustPressed('Digit6')) return 5; // Weapon slot 5
         return -1;
+    }
+    
+    // Building controls
+    isToggleBuildMode() {
+        return this.isKeyJustPressed('KeyQ');
+    }
+    
+    getBuildPieceSwitch() {
+        if (this.isKeyJustPressed('F1')) return 0; // Wall
+        if (this.isKeyJustPressed('F2')) return 1; // Floor
+        if (this.isKeyJustPressed('F3')) return 2; // Stair
+        if (this.isKeyJustPressed('F4')) return 3; // Cone
+        return -1;
+    }
+    
+    isRotateBuild() {
+        return this.isKeyJustPressed('KeyR');
+    }
+    
+    isCycleMaterial() {
+        return this.isMouseButtonJustPressed(2); // Right click
+    }
+    
+    isEditMode() {
+        return this.isKeyJustPressed('KeyG');
+    }
+    
+    isConfirmEdit() {
+        return this.isKeyJustPressed('KeyG');
+    }
+    
+    isCancelEdit() {
+        return this.isKeyJustPressed('Escape');
     }
 }
 

@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 import { perlin, randomRange } from '../utils/math.js';
+import { textureManager } from '../utils/textures.js';
+
+// Harvestable resource types
+export const HARVEST_TYPES = {
+    TREE: { material: 'WOOD', gives: 'wood', amount: 30, maxHits: 3 },
+    ROCK: { material: 'STONE', gives: 'stone', amount: 20, maxHits: 4 },
+    METAL: { material: 'METAL', gives: 'metal', amount: 15, maxHits: 5 }
+};
 
 export class Island {
     constructor(scene) {
@@ -9,10 +17,14 @@ export class Island {
         this.resolution = 128;
         this.colliders = [];
         
+        // Harvestable resources
+        this.harvestables = [];
+        
         this.createTerrain();
         this.createOcean();
         this.createTrees();
         this.createRocks();
+        this.createMetalObjects();
     }
     
     createTerrain() {
@@ -48,8 +60,9 @@ export class Island {
         geometry.computeVertexNormals();
         geometry.rotateX(-Math.PI / 2);
         
-        // Grass material
-        const material = new THREE.MeshStandardMaterial({
+        // Grass material with texture
+        const grassMat = textureManager.getMaterial('grass');
+        const material = grassMat || new THREE.MeshStandardMaterial({
             color: 0x4CAF50,
             roughness: 0.9,
             metalness: 0.0,
@@ -64,7 +77,8 @@ export class Island {
     
     createOcean() {
         const oceanGeometry = new THREE.PlaneGeometry(2000, 2000);
-        const oceanMaterial = new THREE.MeshStandardMaterial({
+        const waterMat = textureManager.getMaterial('water');
+        const oceanMaterial = waterMat || new THREE.MeshStandardMaterial({
             color: 0x1E88E5,
             roughness: 0.3,
             metalness: 0.1,
@@ -96,7 +110,14 @@ export class Island {
             tree.rotation.y = Math.random() * Math.PI * 2;
             const scale = randomRange(0.8, 1.3);
             tree.scale.set(scale, scale, scale);
+            
+            // Mark as harvestable
+            tree.userData.harvestable = true;
+            tree.userData.harvestType = 'TREE';
+            tree.userData.health = HARVEST_TYPES.TREE.maxHits;
+            
             this.scene.add(tree);
+            this.harvestables.push(tree);
             
             // Add trunk as collider
             this.colliders.push(tree.children[0]);
@@ -106,9 +127,10 @@ export class Island {
     createTree() {
         const group = new THREE.Group();
         
-        // Trunk
+        // Trunk with bark texture
         const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.5, 4, 8);
-        const trunkMaterial = new THREE.MeshStandardMaterial({
+        const barkMat = textureManager.getMaterial('bark');
+        const trunkMaterial = barkMat || new THREE.MeshStandardMaterial({
             color: 0x5D4037,
             roughness: 1.0
         });
@@ -118,9 +140,10 @@ export class Island {
         trunk.receiveShadow = true;
         group.add(trunk);
         
-        // Foliage (low-poly cone style)
+        // Foliage (low-poly cone style) with leaves texture
         const foliageGeometry = new THREE.ConeGeometry(3, 6, 6);
-        const foliageMaterial = new THREE.MeshStandardMaterial({
+        const leavesMat = textureManager.getMaterial('leaves');
+        const foliageMaterial = leavesMat || new THREE.MeshStandardMaterial({
             color: 0x2E7D32,
             roughness: 0.8,
             flatShading: true
@@ -160,14 +183,22 @@ export class Island {
             rock.rotation.y = Math.random() * Math.PI * 2;
             const scale = randomRange(0.5, 2);
             rock.scale.set(scale, scale * randomRange(0.5, 1), scale);
+            
+            // Mark as harvestable
+            rock.userData.harvestable = true;
+            rock.userData.harvestType = 'ROCK';
+            rock.userData.health = HARVEST_TYPES.ROCK.maxHits;
+            
             this.scene.add(rock);
             this.colliders.push(rock);
+            this.harvestables.push(rock);
         }
     }
     
     createRock() {
         const geometry = new THREE.DodecahedronGeometry(1, 0);
-        const material = new THREE.MeshStandardMaterial({
+        const stoneMat = textureManager.getMaterial('stone');
+        const material = stoneMat || new THREE.MeshStandardMaterial({
             color: 0x757575,
             roughness: 1.0,
             flatShading: true
@@ -177,6 +208,98 @@ export class Island {
         rock.castShadow = true;
         rock.receiveShadow = true;
         return rock;
+    }
+    
+    createMetalObjects() {
+        // Create cars and containers for metal
+        const metalCount = 20;
+        
+        for (let i = 0; i < metalCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = randomRange(30, this.size * 0.4);
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            const y = this.getHeightAt(x, z);
+            
+            if (y < 0) continue;
+            
+            const metalObj = this.createCar();
+            metalObj.position.set(x, y, z);
+            metalObj.rotation.y = Math.random() * Math.PI * 2;
+            
+            // Mark as harvestable
+            metalObj.userData.harvestable = true;
+            metalObj.userData.harvestType = 'METAL';
+            metalObj.userData.health = HARVEST_TYPES.METAL.maxHits;
+            
+            this.scene.add(metalObj);
+            this.colliders.push(metalObj);
+            this.harvestables.push(metalObj);
+        }
+    }
+    
+    createCar() {
+        const group = new THREE.Group();
+        
+        // Car body with metal texture
+        const metalMat = textureManager.getMaterial('metal');
+        const bodyMaterial = metalMat || new THREE.MeshStandardMaterial({
+            color: 0x4a4a4a,
+            roughness: 0.4,
+            metalness: 0.6
+        });
+        
+        // Main body
+        const bodyGeometry = new THREE.BoxGeometry(3, 1, 1.5);
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.y = 0.8;
+        body.castShadow = true;
+        group.add(body);
+        
+        // Roof
+        const roofGeometry = new THREE.BoxGeometry(1.5, 0.6, 1.4);
+        const roof = new THREE.Mesh(roofGeometry, bodyMaterial);
+        roof.position.y = 1.5;
+        roof.castShadow = true;
+        group.add(roof);
+        
+        // Wheels
+        const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8);
+        const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+        
+        const wheelPositions = [
+            { x: -0.9, z: 0.7 },
+            { x: -0.9, z: -0.7 },
+            { x: 0.9, z: 0.7 },
+            { x: 0.9, z: -0.7 }
+        ];
+        
+        wheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+            wheel.rotation.x = Math.PI / 2;
+            wheel.position.set(pos.x, 0.3, pos.z);
+            group.add(wheel);
+        });
+        
+        return group;
+    }
+    
+    // Get harvestables for pickaxe interaction
+    getHarvestables() {
+        return this.harvestables;
+    }
+    
+    // Remove a harvestable after it's been fully harvested
+    removeHarvestable(obj) {
+        const idx = this.harvestables.indexOf(obj);
+        if (idx > -1) {
+            this.harvestables.splice(idx, 1);
+        }
+        const collIdx = this.colliders.indexOf(obj);
+        if (collIdx > -1) {
+            this.colliders.splice(collIdx, 1);
+        }
+        this.scene.remove(obj);
     }
     
     getHeightAt(x, z) {

@@ -2,6 +2,19 @@ import * as THREE from 'three';
 
 // Weapon definitions
 export const WEAPON_TYPES = {
+    PICKAXE: {
+        name: 'Pickaxe',
+        damage: 20,
+        fireRate: 0.5,
+        magazineSize: Infinity,
+        reloadTime: 0,
+        spread: 0,
+        range: 4,
+        automatic: false,
+        isPickaxe: true,
+        harvestDamage: 50,
+        color: 0x9E9E9E
+    },
     AR: {
         name: 'AR',
         damage: 30,
@@ -166,22 +179,30 @@ export class Weapon {
 export class WeaponManager {
     constructor(scene) {
         this.scene = scene;
+        // Pickaxe is always slot 0, weapons are 1-5
         this.weapons = [
+            new Weapon('PICKAXE', scene),
             new Weapon('AR', scene),
             new Weapon('SHOTGUN', scene),
-            new Weapon('SMG', scene)
+            new Weapon('SMG', scene),
+            null, // Empty slot
+            null  // Empty slot
         ];
-        this.currentIndex = 0;
+        this.currentIndex = 0; // Start with pickaxe
     }
     
     get currentWeapon() {
         return this.weapons[this.currentIndex];
     }
     
+    isPickaxe() {
+        return this.currentIndex === 0;
+    }
+    
     switchTo(index) {
-        if (index >= 0 && index < this.weapons.length) {
+        if (index >= 0 && index < this.weapons.length && this.weapons[index]) {
             // Cancel current reload
-            if (this.currentWeapon.isReloading) {
+            if (this.currentWeapon && this.currentWeapon.isReloading) {
                 this.currentWeapon.isReloading = false;
             }
             this.currentIndex = index;
@@ -190,13 +211,17 @@ export class WeaponManager {
     
     update(deltaTime, currentTime) {
         for (const weapon of this.weapons) {
-            weapon.update(deltaTime, currentTime);
+            if (weapon) {
+                weapon.update(deltaTime, currentTime);
+            }
         }
     }
     
     dispose() {
         for (const weapon of this.weapons) {
-            weapon.dispose();
+            if (weapon) {
+                weapon.dispose();
+            }
         }
     }
 }
