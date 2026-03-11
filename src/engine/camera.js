@@ -31,6 +31,17 @@ export class ThirdPersonCamera {
         // Aiming state
         this.isAiming = false;
         
+        // Cached temp objects to avoid per-frame heap allocations in update()
+        this._tempTargetPos = new THREE.Vector3();
+        this._tempRotatedOffset = new THREE.Vector3();
+        this._pitchQuat = new THREE.Quaternion();
+        this._yawQuat = new THREE.Quaternion();
+        this._pitchAxis = new THREE.Vector3(1, 0, 0);
+        this._yawAxis = new THREE.Vector3(0, 1, 0);
+        this._desiredPos = new THREE.Vector3();
+        this._camDir = new THREE.Vector3();
+        this._lookTarget = new THREE.Vector3();
+        
         window.addEventListener('resize', () => this.onResize());
     }
     
@@ -62,46 +73,44 @@ export class ThirdPersonCamera {
         const targetOffset = this.isAiming ? this.aimOffset : this.offset;
         this.currentOffset.lerp(targetOffset, 0.1);
         
-        // Calculate desired camera position
-        const targetPos = this.target.position.clone();
-        targetPos.y += 1.5; // Head height
+        // Calculate desired camera position (reuse cached vectors, no heap allocs)
+        this._tempTargetPos.copy(this.target.position);
+        this._tempTargetPos.y += 1.5; // Head height
         
         // Rotate offset by yaw and pitch
-        const rotatedOffset = this.currentOffset.clone();
+        this._tempRotatedOffset.copy(this.currentOffset);
         
-        // Apply pitch rotation
-        const pitchQuat = new THREE.Quaternion();
-        pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), this.pitch);
+        // Apply pitch then yaw rotation
+        this._pitchQuat.setFromAxisAngle(this._pitchAxis, this.pitch);
+        this._yawQuat.setFromAxisAngle(this._yawAxis, this.yaw);
         
-        // Apply yaw rotation
-        const yawQuat = new THREE.Quaternion();
-        yawQuat.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+        this._tempRotatedOffset.applyQuaternion(this._pitchQuat);
+        this._tempRotatedOffset.applyQuaternion(this._yawQuat);
         
-        rotatedOffset.applyQuaternion(pitchQuat);
-        rotatedOffset.applyQuaternion(yawQuat);
-        
-        let desiredPos = targetPos.clone().add(rotatedOffset);
+        this._desiredPos.copy(this._tempTargetPos).add(this._tempRotatedOffset);
         
         // Camera collision check
         if (colliders.length > 0) {
-            const direction = desiredPos.clone().sub(targetPos).normalize();
-            const distance = targetPos.distanceTo(desiredPos);
+            this._camDir.copy(this._desiredPos).sub(this._tempTargetPos).normalize();
+            const distance = this._tempTargetPos.distanceTo(this._desiredPos);
             
-            this.raycaster.set(targetPos, direction);
+            this.raycaster.set(this._tempTargetPos, this._camDir);
             const intersects = this.raycaster.intersectObjects(colliders, true);
             
             if (intersects.length > 0 && intersects[0].distance < distance) {
-                desiredPos = targetPos.clone().add(direction.multiplyScalar(intersects[0].distance - 0.5));
+                this._desiredPos.copy(this._tempTargetPos).add(
+                    this._camDir.multiplyScalar(intersects[0].distance - 0.5)
+                );
             }
         }
         
         // Smooth camera movement
-        this.camera.position.lerp(desiredPos, this.lerpFactor);
+        this.camera.position.lerp(this._desiredPos, this.lerpFactor);
         
         // Look at target
-        const lookTarget = targetPos.clone();
-        lookTarget.y += 0.5;
-        this.camera.lookAt(lookTarget);
+        this._lookTarget.copy(this._tempTargetPos);
+        this._lookTarget.y += 0.5;
+        this.camera.lookAt(this._lookTarget);
     }
     
     getForwardDirection() {

@@ -139,18 +139,26 @@ export function smoothDamp(current, target, velocity, smoothTime, maxSpeed, delt
     return { value: output, velocity };
 }
 
+// Module-level cached Raycasters to avoid per-call allocations (these functions can be
+// called 15+ times per frame by bots, so object reuse is critical here).
+const _raycastRaycaster = new THREE.Raycaster();
+const _losRaycaster = new THREE.Raycaster();
+const _losDir = new THREE.Vector3();
+
 // Raycast helper
 export function raycast(origin, direction, objects, maxDistance = 1000) {
-    const raycaster = new THREE.Raycaster(origin, direction.normalize(), 0, maxDistance);
-    return raycaster.intersectObjects(objects, true);
+    _raycastRaycaster.set(origin, direction.normalize());
+    _raycastRaycaster.far = maxDistance;
+    return _raycastRaycaster.intersectObjects(objects, true);
 }
 
 // Check line of sight
 export function hasLineOfSight(from, to, obstacles) {
-    const direction = to.clone().sub(from).normalize();
+    _losDir.subVectors(to, from).normalize();
     const distance = from.distanceTo(to);
-    const raycaster = new THREE.Raycaster(from, direction, 0, distance);
-    const intersects = raycaster.intersectObjects(obstacles, true);
+    _losRaycaster.set(from, _losDir);
+    _losRaycaster.far = distance;
+    const intersects = _losRaycaster.intersectObjects(obstacles, true);
     return intersects.length === 0;
 }
 

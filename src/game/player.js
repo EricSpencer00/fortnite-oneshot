@@ -40,6 +40,17 @@ export class Player {
         
         // Raycaster for ground check
         this.groundRaycaster = new THREE.Raycaster();
+        
+        // Cached temp objects for per-frame methods (avoids GC pressure)
+        this._groundOrigin = new THREE.Vector3();
+        this._groundDownDir = new THREE.Vector3(0, -1, 0);
+        this._newPos = new THREE.Vector3();
+        this._horizontalRay = new THREE.Raycaster();
+        this._horizontalMoveDir = new THREE.Vector3();
+        this._wallOrigin = new THREE.Vector3();
+        this._wallNormal = new THREE.Vector3();
+        this._wallVel = new THREE.Vector3();
+        this._moveDirection = new THREE.Vector3();
     }
     
     createMesh() {
@@ -83,21 +94,21 @@ export class Player {
         const forward = this.camera.getForwardDirection();
         const right = this.camera.getRightDirection();
         
-        const moveDirection = new THREE.Vector3();
-        moveDirection.add(forward.multiplyScalar(moveInput.z));
-        moveDirection.add(right.multiplyScalar(moveInput.x));
+        this._moveDirection.set(0, 0, 0);
+        this._moveDirection.add(forward.multiplyScalar(moveInput.z));
+        this._moveDirection.add(right.multiplyScalar(moveInput.x));
         
-        if (moveDirection.lengthSq() > 0) {
-            moveDirection.normalize();
+        if (this._moveDirection.lengthSq() > 0) {
+            this._moveDirection.normalize();
             
             const speed = this.moveSpeed * (this.isSprinting ? this.sprintMultiplier : 1);
             const aimPenalty = this.isAiming ? 0.6 : 1;
             
-            this.velocity.x = moveDirection.x * speed * aimPenalty;
-            this.velocity.z = moveDirection.z * speed * aimPenalty;
+            this.velocity.x = this._moveDirection.x * speed * aimPenalty;
+            this.velocity.z = this._moveDirection.z * speed * aimPenalty;
             
             // Rotate mesh to face movement direction
-            const targetRotation = Math.atan2(moveDirection.x, moveDirection.z);
+            const targetRotation = Math.atan2(this._moveDirection.x, this._moveDirection.z);
             this.mesh.rotation.y = THREE.MathUtils.lerp(
                 this.mesh.rotation.y,
                 targetRotation,
@@ -150,10 +161,10 @@ export class Player {
     }
     
     checkGround() {
-        const origin = this.position.clone();
-        origin.y += 0.1;
+        this._groundOrigin.copy(this.position);
+        this._groundOrigin.y += 0.1;
         
-        this.groundRaycaster.set(origin, new THREE.Vector3(0, -1, 0));
+        this.groundRaycaster.set(this._groundOrigin, this._groundDownDir);
         
         // Check against terrain and buildings
         const intersects = this.groundRaycaster.intersectObjects(this.colliders, true);
@@ -180,51 +191,45 @@ export class Player {
     
     applyMovement(deltaTime) {
         // Simple movement with basic collision
-        const newPos = this.position.clone();
-        newPos.x += this.velocity.x * deltaTime;
-        newPos.z += this.velocity.z * deltaTime;
-        newPos.y += this.velocity.y * deltaTime;
+        this._newPos.copy(this.position);
+        this._newPos.x += this.velocity.x * deltaTime;
+        this._newPos.z += this.velocity.z * deltaTime;
+        this._newPos.y += this.velocity.y * deltaTime;
         
         // Basic collision check
-        const horizontalRay = new THREE.Raycaster();
-        const moveDir = new THREE.Vector3(
-            this.velocity.x,
-            0,
-            this.velocity.z
-        ).normalize();
+        this._horizontalMoveDir.set(this.velocity.x, 0, this.velocity.z).normalize();
         
-        if (moveDir.lengthSq() > 0) {
-            horizontalRay.set(
-                this.position.clone().add(new THREE.Vector3(0, 1, 0)),
-                moveDir
-            );
+        if (this._horizontalMoveDir.lengthSq() > 0) {
+            this._wallOrigin.copy(this.position);
+            this._wallOrigin.y += 1;
+            this._horizontalRay.set(this._wallOrigin, this._horizontalMoveDir);
             
-            const hits = horizontalRay.intersectObjects(this.colliders, true);
+            const hits = this._horizontalRay.intersectObjects(this.colliders, true);
             if (hits.length > 0 && hits[0].distance < this.radius + Math.abs(this.velocity.x + this.velocity.z) * deltaTime) {
                 // Slide along wall
-                const normal = hits[0].face.normal.clone();
-                normal.y = 0;
-                normal.normalize();
+                this._wallNormal.copy(hits[0].face.normal);
+                this._wallNormal.y = 0;
+                this._wallNormal.normalize();
                 
-                const vel = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);
-                const dot = vel.dot(normal);
-                vel.sub(normal.multiplyScalar(dot));
+                this._wallVel.set(this.velocity.x, 0, this.velocity.z);
+                const dot = this._wallVel.dot(this._wallNormal);
+                this._wallVel.sub(this._wallNormal.multiplyScalar(dot));
                 
-                newPos.x = this.position.x + vel.x * deltaTime;
-                newPos.z = this.position.z + vel.z * deltaTime;
+                this._newPos.x = this.position.x + this._wallVel.x * deltaTime;
+                this._newPos.z = this.position.z + this._wallVel.z * deltaTime;
             }
         }
         
         // Keep player within island bounds
         const maxDist = 230;
-        const dist = Math.sqrt(newPos.x * newPos.x + newPos.z * newPos.z);
+        const dist = Math.sqrt(this._newPos.x * this._newPos.x + this._newPos.z * this._newPos.z);
         if (dist > maxDist) {
             const scale = maxDist / dist;
-            newPos.x *= scale;
-            newPos.z *= scale;
+            this._newPos.x *= scale;
+            this._newPos.z *= scale;
         }
         
-        this.position.copy(newPos);
+        this.position.copy(this._newPos);
     }
     
     shoot(currentTime) {

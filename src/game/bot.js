@@ -61,6 +61,24 @@ export class Bot {
         
         // Create mesh
         this.createMesh();
+        
+        // Cached temp objects to avoid per-frame heap allocations (×15 bots = high impact)
+        this._groundRayOrigin = new THREE.Vector3();
+        this._groundRayDown = new THREE.Vector3(0, -1, 0);
+        this._groundRaycaster = new THREE.Raycaster();
+        this._terrainColliders = colliders.filter(c => c.name === 'terrain');
+        this._eyePos = new THREE.Vector3();
+        this._playerCenter = new THREE.Vector3();
+        this._engageDir = new THREE.Vector3();
+        this._strafeDir = new THREE.Vector3();
+        this._chaseDir = new THREE.Vector3();
+        this._shootOrigin = new THREE.Vector3();
+        this._shootDir = new THREE.Vector3();
+        
+        // LOS throttle: only raycast for line-of-sight every 150ms, not every frame
+        this._losResult = false;
+        this._losTimer = 0;
+        this._losInterval = 0.15;
     }
     
     createMesh() {
@@ -140,9 +158,14 @@ export class Bot {
         // Update weapon
         this.weapon.update(deltaTime, currentTime);
         
-        // Check if player is visible
-        const canSeePlayer = this.checkLineOfSight(player);
-        const distToPlayer = this.position.distanceTo(player.getPosition());
+        // Throttle expensive LOS raycasts: recheck every 150ms instead of every frame
+        this._losTimer -= deltaTime;
+        if (this._losTimer <= 0) {
+            this._losResult = this.checkLineOfSight(player);
+            this._losTimer = this._losInterval;
+        }
+        const canSeePlayer = this._losResult;
+        const distToPlayer = this.position.distanceTo(player.position);
         
         // State machine
         switch (this.state) {
@@ -180,18 +203,17 @@ export class Bot {
     checkLineOfSight(player) {
         if (!player.alive) return false;
         
-        const playerPos = player.getPosition();
-        const dist = this.position.distanceTo(playerPos);
+        const dist = this.position.distanceTo(player.position);
         
         if (dist > this.sightRange) return false;
         
-        const myEyePos = this.position.clone();
-        myEyePos.y += 1.5;
+        this._eyePos.copy(this.position);
+        this._eyePos.y += 1.5;
         
-        const playerCenter = playerPos.clone();
-        playerCenter.y += 1;
+        this._playerCenter.copy(player.position);
+        this._playerCenter.y += 1;
         
-        return hasLineOfSight(myEyePos, playerCenter, this.colliders);
+        return hasLineOfSight(this._eyePos, this._playerCenter, this.colliders);
     }
     
     updateIdle(deltaTime, canSeePlayer, distToPlayer) {
@@ -260,39 +282,39 @@ export class Bot {
             return;
         }
         
-        const playerPos = player.getPosition();
+        const playerPos = player.position;
         
         if (canSeePlayer) {
             this.lastKnownPlayerPos = playerPos.clone();
             
             // Face player
-            const dir = playerPos.clone().sub(this.position);
-            dir.y = 0;
-            dir.normalize();
-            this.targetRotation = Math.atan2(dir.x, dir.z);
+            this._engageDir.copy(playerPos).sub(this.position);
+            this._engageDir.y = 0;
+            this._engageDir.normalize();
+            this.targetRotation = Math.atan2(this._engageDir.x, this._engageDir.z);
             
             // Strafe while fighting
-            const strafeDir = new THREE.Vector3(-dir.z, 0, dir.x);
+            this._strafeDir.set(-this._engageDir.z, 0, this._engageDir.x);
             const strafeAmount = Math.sin(currentTime * 0.002) * 0.5;
             
             if (distToPlayer > this.attackRange) {
                 // Move closer
-                this.velocity.x = dir.x * this.moveSpeed + strafeDir.x * strafeAmount * this.moveSpeed;
-                this.velocity.z = dir.z * this.moveSpeed + strafeDir.z * strafeAmount * this.moveSpeed;
+                this.velocity.x = this._engageDir.x * this.moveSpeed + this._strafeDir.x * strafeAmount * this.moveSpeed;
+                this.velocity.z = this._engageDir.z * this.moveSpeed + this._strafeDir.z * strafeAmount * this.moveSpeed;
             } else if (distToPlayer < 10) {
                 // Too close, back up
-                this.velocity.x = -dir.x * this.moveSpeed * 0.5 + strafeDir.x * strafeAmount * this.moveSpeed;
-                this.velocity.z = -dir.z * this.moveSpeed * 0.5 + strafeDir.z * strafeAmount * this.moveSpeed;
+                this.velocity.x = -this._engageDir.x * this.moveSpeed * 0.5 + this._strafeDir.x * strafeAmount * this.moveSpeed;
+                this.velocity.z = -this._engageDir.z * this.moveSpeed * 0.5 + this._strafeDir.z * strafeAmount * this.moveSpeed;
             } else {
                 // Strafe only
-                this.velocity.x = strafeDir.x * strafeAmount * this.moveSpeed;
-                this.velocity.z = strafeDir.z * strafeAmount * this.moveSpeed;
+                this.velocity.x = this._strafeDir.x * strafeAmount * this.moveSpeed;
+                this.velocity.z = this._strafeDir.z * strafeAmount * this.moveSpeed;
             }
         } else if (this.lastKnownPlayerPos) {
             // Move to last known position
-            const dir = this.lastKnownPlayerPos.clone().sub(this.position);
-            dir.y = 0;
-            const dist = dir.length();
+            this._chaseDir.copy(this.lastKnownPlayerPos).sub(this.position);
+            this._chaseDir.y = 0;
+            const dist = this._chaseDir.length();
             
             if (dist < 5) {
                 this.lastKnownPlayerPos = null;
@@ -302,10 +324,10 @@ export class Bot {
                 return;
             }
             
-            dir.normalize();
-            this.velocity.x = dir.x * this.moveSpeed;
-            this.velocity.z = dir.z * this.moveSpeed;
-            this.targetRotation = Math.atan2(dir.x, dir.z);
+            this._chaseDir.normalize();
+            this.velocity.x = this._chaseDir.x * this.moveSpeed;
+            this.velocity.z = this._chaseDir.z * this.moveSpeed;
+            this.targetRotation = Math.atan2(this._chaseDir.x, this._chaseDir.z);
         } else {
             this.state = BotState.PATROL;
             this.patrolPoint = this.getRandomPatrolPoint();
@@ -318,8 +340,7 @@ export class Bot {
         if (!this.weapon.canFire(currentTime)) return null;
         if (this.shootCooldown > 0) return null;
         
-        const playerPos = player.getPosition();
-        const dist = this.position.distanceTo(playerPos);
+        const dist = this.position.distanceTo(player.position);
         
         // Don't shoot if too far for weapon
         if (dist > this.weapon.config.range) return null;
@@ -327,19 +348,21 @@ export class Bot {
         // Random chance to not shoot (hesitation)
         if (Math.random() < 0.3) return null;
         
-        // Add inaccuracy - more at distance
-        const origin = this.position.clone();
-        origin.y += 1.5;
+        // Add inaccuracy - more at distance (reuse cached vectors, no heap allocs)
+        this._shootOrigin.copy(this.position);
+        this._shootOrigin.y += 1.5;
         
-        const direction = playerPos.clone().add(new THREE.Vector3(0, 1, 0)).sub(origin).normalize();
+        this._shootDir.copy(player.position);
+        this._shootDir.y += 1;
+        this._shootDir.sub(this._shootOrigin).normalize();
         
         // Apply bot accuracy with distance falloff
         const distancePenalty = Math.min(1, dist / 50) * 0.15;
         const inaccuracy = (1 - this.accuracy) * 0.25 + distancePenalty;
-        direction.x += (Math.random() - 0.5) * inaccuracy;
-        direction.y += (Math.random() - 0.5) * inaccuracy;
-        direction.z += (Math.random() - 0.5) * inaccuracy;
-        direction.normalize();
+        this._shootDir.x += (Math.random() - 0.5) * inaccuracy;
+        this._shootDir.y += (Math.random() - 0.5) * inaccuracy;
+        this._shootDir.z += (Math.random() - 0.5) * inaccuracy;
+        this._shootDir.normalize();
         
         // Burst fire limiter
         this.burstCount++;
@@ -348,7 +371,7 @@ export class Bot {
             this.burstCount = 0;
         }
         
-        return this.weapon.fire(currentTime, origin, direction);
+        return this.weapon.fire(currentTime, this._shootOrigin, this._shootDir);
     }
     
     updateRetreat(deltaTime, canSeePlayer, distToPlayer) {
@@ -398,13 +421,11 @@ export class Bot {
     }
     
     applyMovement(deltaTime) {
-        // Simple ground check using terrain
-        const raycaster = new THREE.Raycaster(
-            new THREE.Vector3(this.position.x, 100, this.position.z),
-            new THREE.Vector3(0, -1, 0)
-        );
+        // Ground check using cached raycaster (previously created new Raycaster + 2 Vector3s every frame)
+        this._groundRayOrigin.set(this.position.x, 100, this.position.z);
+        this._groundRaycaster.set(this._groundRayOrigin, this._groundRayDown);
         
-        const hits = raycaster.intersectObjects(this.colliders.filter(c => c.name === 'terrain'), true);
+        const hits = this._groundRaycaster.intersectObjects(this._terrainColliders, true);
         const groundY = hits.length > 0 ? hits[0].point.y + 0.5 : 0.5;
         
         // Apply velocity
