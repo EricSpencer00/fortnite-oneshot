@@ -1,734 +1,486 @@
 import * as THREE from 'three';
+import { input } from './input.js';
+import { World, WORLD_SIZE } from './world.js';
+import { Player, ShoulderCamera } from './player.js';
+import { BotManager } from './bots.js';
+import { BuildSystem, BUILD_MATS } from './building.js';
+import { Storm, BattleBus, SkyDrop, DropState } from './systems.js';
+import { LootManager } from './systems.js';
+import { FXPool } from './weapons.js';
+import { HUD } from './hud.js';
+import { lerp, damp, rand } from './utils.js';
 
-// Engine
-import { Renderer } from './engine/renderer.js';
-import { GameScene } from './engine/scene.js';
-import { ThirdPersonCamera } from './engine/camera.js';
-import { GameLoop } from './engine/loop.js';
-
-// Utils
-import { input } from './utils/input.js';
-
-// World
-import { Island, HARVEST_TYPES } from './world/island.js';
-import { Buildings } from './world/buildings.js';
-import { SpawnManager } from './world/spawn.js';
-
-// Game
-import { Player } from './game/player.js';
-import { BotManager } from './game/bot.js';
-import { ProjectileManager } from './game/projectile.js';
-import { PickupManager } from './game/pickups.js';
-import { Storm } from './game/storm.js';
-import { Match } from './game/match.js';
-import { BattleBus, PlayerDrop, DropState } from './game/battlebus.js';
-import { BuildingSystem, MATERIAL_TYPES, BUILD_TYPES } from './game/building.js';
-
-// UI
-import { HUD } from './ui/hud.js';
-import { Crosshair } from './ui/crosshair.js';
-import { Menu } from './ui/menu.js';
-
-// Game phases
-const GamePhase = {
-    MENU: 'menu',
-    BUS: 'bus',
-    DROPPING: 'dropping',
-    PLAYING: 'playing',
-    ENDED: 'ended'
-};
+const Phase = { MENU: 'menu', BUS: 'bus', DROPPING: 'dropping', PLAYING: 'playing', ENDED: 'ended' };
+const BOT_COUNT = 23;
 
 class Game {
     constructor() {
         this.container = document.getElementById('game-container');
-        
-        // Core systems
-        this.renderer = null;
-        this.gameScene = null;
-        this.camera = null;
-        this.gameLoop = null;
-        
-        // World
-        this.island = null;
-        this.buildings = null;
-        this.spawnManager = null;
-        
-        // Game entities
-        this.player = null;
-        this.botManager = null;
-        this.projectileManager = null;
-        this.pickupManager = null;
-        this.storm = null;
-        this.match = null;
-        
-        // New systems
-        this.battleBus = null;
-        this.playerDrop = null;
-        this.buildingSystem = null;
-        
-        // Player materials
-        this.materials = { wood: 50, stone: 20, metal: 10 }; // Start with some mats
-        
-        // UI
-        this.hud = null;
-        this.crosshair = null;
-        this.menu = null;
-        
-        // Game state
-        this.phase = GamePhase.MENU;
-        this.isRunning = false;
-        this.colliders = [];
-        this.isBuildMode = false;
-        
-        // Bot count
-        this.botCount = 15;
-        
-        // Fall damage
-        this.lastGroundedY = 0;
-        this.wasGrounded = true;
-        
-        // Initialize
-        this.init();
-    }
-    
-    async init() {
-        // Show loading
-        const loadingBar = document.getElementById('loading-bar');
-        
-        // Create renderer
-        loadingBar.style.width = '10%';
-        this.renderer = new Renderer(this.container);
-        
-        // Create scene
-        loadingBar.style.width = '20%';
-        this.gameScene = new GameScene();
-        
-        // Create camera
-        loadingBar.style.width = '30%';
-        this.camera = new ThirdPersonCamera();
-        
-        // Create game loop
-        this.gameLoop = new GameLoop();
-        
-        // Create world
-        loadingBar.style.width = '40%';
-        this.island = new Island(this.gameScene.threeScene);
-        
-        loadingBar.style.width = '60%';
-        this.buildings = new Buildings(this.gameScene.threeScene, this.island);
-        
-        // Collect all colliders
-        this.colliders = [
-            this.island.terrain,
-            ...this.island.getColliders(),
-            ...this.buildings.getColliders()
-        ];
-        
-        loadingBar.style.width = '70%';
-        this.spawnManager = new SpawnManager(this.island);
-        
-        // Create managers
-        loadingBar.style.width = '80%';
-        this.projectileManager = new ProjectileManager(this.gameScene.threeScene);
-        this.pickupManager = new PickupManager(this.gameScene.threeScene);
-        this.botManager = new BotManager(this.gameScene.threeScene, this.colliders);
-        
-        // Create storm
-        this.storm = new Storm(this.gameScene.threeScene);
-        
-        // Create UI
-        loadingBar.style.width = '90%';
+        this.setupRenderer();
+        this.setupScene();
+
+        this.cam = new ShoulderCamera();
         this.hud = new HUD();
-        this.crosshair = new Crosshair();
-        this.menu = new Menu(
-            () => this.startGame(),
-            () => this.restartGame()
-        );
-        
-        // Add game loop callback
-        this.gameLoop.addCallback((dt, time) => this.update(dt, time));
-        
-        // Hide loading, show menu
-        loadingBar.style.width = '100%';
-        setTimeout(() => {
-            document.getElementById('loading-screen').classList.add('hidden');
-            this.menu.showMenu();
-        }, 500);
-        
-        // Start render loop (but game logic paused)
-        this.gameLoop.start();
+        this.world = new World(this.scene);
+        this.fx = new FXPool(this.scene);
+
+        this.phase = Phase.MENU;
+        this.player = null;
+        this.bots = null;
+        this.storm = null;
+        this.bus = null;
+        this.drop = null;
+        this.loot = null;
+        this.builds = null;
+        this.buildMode = false;
+        this.matchStart = 0;
+        this.raycaster = new THREE.Raycaster();
+        this.crossSpread = 8;
+
+        // Menu wiring
+        document.getElementById('play-btn').addEventListener('click', () => this.startMatch());
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            document.getElementById('end-screen').classList.add('hidden');
+            this.startMatch();
+        });
+        // Re-lock pointer on click during play
+        this.renderer.domElement.addEventListener('click', () => {
+            if (this.phase !== Phase.MENU && this.phase !== Phase.ENDED) input.lock(this.renderer.domElement);
+        });
+
+        // Reveal play button once assets exist (everything is procedural, so: now)
+        document.getElementById('loading-bar').style.width = '100%';
+        setTimeout(() => document.getElementById('play-btn').classList.remove('hidden'), 300);
+
+        this.clock = new THREE.Clock();
+        this.renderer.setAnimationLoop(() => this.frame());
     }
-    
-    startGame() {
-        // Request pointer lock
-        input.requestPointerLock(this.renderer.domElement);
-        
-        // Reset materials
-        this.materials = { wood: 50, stone: 20, metal: 10 };
-        
-        // Create battle bus
-        this.battleBus = new BattleBus(this.gameScene.threeScene, this.island.size);
-        this.battleBus.start();
-        
-        // Create player drop handler (starts on bus)
-        this.playerDrop = new PlayerDrop(this.island);
-        
-        // Create building system
-        this.buildingSystem = new BuildingSystem(this.gameScene.threeScene);
-        this.colliders.push(...this.buildingSystem.getColliders());
-        
-        // Create player (but don't position yet - will drop from bus)
-        this.player = new Player(
-            this.gameScene.threeScene,
-            this.camera,
-            this.colliders
-        );
-        // Start player invisible until dropped
-        this.player.mesh.visible = false;
-        
-        // Spawn bots (they drop at random times)
-        const botSpawns = this.spawnManager.getBotSpawnPoints(this.botCount, new THREE.Vector3(0, 0, 0));
-        this.botManager.spawnBots(botSpawns);
-        
-        // Spawn initial pickups
-        const pickupSpawns = this.spawnManager.getPickupSpawnPoints(30);
-        for (const pos of pickupSpawns) {
-            this.pickupManager.spawnPickup(pos);
-        }
-        
-        // Create match
-        this.match = new Match(this);
-        this.match.start(this.botCount);
-        
-        // Set phase to bus
-        this.phase = GamePhase.BUS;
-        this.isRunning = true;
-        
-        // Hide crosshair while on bus
-        this.crosshair.hide();
-        
-        // Show bus UI
-        this.hud.showBusUI(true);
+
+    setupRenderer() {
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.container.appendChild(this.renderer.domElement);
+        window.addEventListener('resize', () => {
+            if (window.innerWidth === 0 || window.innerHeight === 0) return; // minimized/hidden
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     }
-    
-    restartGame() {
-        // Clean up old game
+
+    setupScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x87b5e0);
+        this.scene.fog = new THREE.Fog(0x87b5e0, 250, 700);
+
+        const sun = new THREE.DirectionalLight(0xfff2dd, 2.2);
+        sun.position.set(120, 180, 80);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        const d = 260;
+        sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+        sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+        sun.shadow.camera.far = 600;
+        this.scene.add(sun);
+        this.scene.add(new THREE.AmbientLight(0x8aa4c4, 1.1));
+        this.scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x3f6f3a, 0.6));
+    }
+
+    // ------------------------------------------------------------ match lifecycle
+    startMatch() {
         this.cleanup();
-        
-        // Recreate systems that need reset
-        this.projectileManager = new ProjectileManager(this.gameScene.threeScene);
-        this.pickupManager = new PickupManager(this.gameScene.threeScene);
-        this.botManager = new BotManager(this.gameScene.threeScene, this.colliders);
-        
-        // Reset storm
-        this.storm.dispose();
-        this.storm = new Storm(this.gameScene.threeScene);
-        
-        // Start new game
-        this.startGame();
+        document.getElementById('menu-screen').classList.add('hidden');
+        this.hud.show(true);
+        input.lock(this.renderer.domElement);
+
+        this.player = new Player(this.scene, this.cam);
+        this.player.mesh.visible = false;
+        this.bots = new BotManager(this.scene);
+        this.bots.spawn(BOT_COUNT, this.world);
+        this.storm = new Storm(this.scene);
+        this.bus = new BattleBus(this.scene);
+        this.drop = new SkyDrop(this.world);
+        this.loot = new LootManager(this.scene);
+        this.loot.spawnFloorLoot(this.world, 60);
+        this.builds = new BuildSystem(this.scene);
+        this.buildMode = false;
+        this.kills = 0;
+        this.matchStart = performance.now() / 1000;
+        this.phase = Phase.BUS;
+        this.hud.setPhaseUI('bus');
+        this.hud.setControlsHint(true);
+        // reset chests
+        for (const c of this.world.chests) {
+            if (c.opened) {
+                c.opened = false;
+                c.lid.rotation.x = 0;
+                c.lid.position.z = 0;
+                c.glow.intensity = 0.9;
+            }
+        }
     }
-    
+
     cleanup() {
-        if (this.player) {
-            this.player.dispose();
-            this.player = null;
-        }
-        
-        if (this.botManager) {
-            this.botManager.dispose();
-        }
-        
-        if (this.projectileManager) {
-            this.projectileManager.dispose();
-        }
-        
-        if (this.pickupManager) {
-            this.pickupManager.dispose();
-        }
-        
-        if (this.battleBus) {
-            this.battleBus.dispose();
-            this.battleBus = null;
-        }
-        
-        if (this.buildingSystem) {
-            this.buildingSystem.dispose();
-            this.buildingSystem = null;
-        }
-        
-        this.playerDrop = null;
-        this.isBuildMode = false;
-        this.isRunning = false;
-        this.phase = GamePhase.MENU;
-    }
-    
-    update(deltaTime, currentTime) {
-        // Always update input
-        const mouseDelta = input.getMouseDelta();
-        
-        // Handle different game phases
-        if (this.phase === GamePhase.BUS) {
-            this.updateBusPhase(deltaTime, currentTime);
-        } else if (this.phase === GamePhase.DROPPING) {
-            this.updateDroppingPhase(deltaTime, currentTime, mouseDelta);
-        } else if (this.phase === GamePhase.PLAYING && this.player && this.player.alive) {
-            this.updatePlayingPhase(deltaTime, currentTime, mouseDelta);
-        }
-        
-        // Reset input state
-        input.update();
-        
-        // Render
-        this.renderer.render(this.gameScene.threeScene, this.camera.threeCamera);
-    }
-    
-    updateBusPhase(deltaTime, currentTime) {
-        // Update battle bus
-        this.battleBus.update(deltaTime);
-        
-        // Position camera to follow bus
-        const busPos = this.battleBus.getPosition();
-        this.camera.threeCamera.position.set(busPos.x, busPos.y + 20, busPos.z + 30);
-        this.camera.threeCamera.lookAt(busPos);
-        
-        // Check for jump input
-        if (input.isJumping() && this.battleBus.canJump()) {
-            // Jump from bus
-            const dropPos = this.battleBus.getDropPosition();
-            this.playerDrop.startDrop(dropPos);
-            this.player.setPosition(dropPos);
-            this.player.mesh.visible = true;
-            this.phase = GamePhase.DROPPING;
-            
-            // Hide bus UI, show glider UI
-            this.hud.showBusUI(false);
-            this.hud.showGliderUI(true);
-        }
-        
-        // Auto-drop at end of bus path
-        if (this.battleBus.isComplete()) {
-            const dropPos = this.battleBus.getDropPosition();
-            this.playerDrop.startDrop(dropPos);
-            this.player.setPosition(dropPos);
-            this.player.mesh.visible = true;
-            this.phase = GamePhase.DROPPING;
-            
-            this.hud.showBusUI(false);
-            this.hud.showGliderUI(true);
+        if (this.player) this.player.dispose();
+        if (this.bots) this.bots.dispose();
+        if (this.bus) this.bus.dispose();
+        if (this.loot) this.loot.dispose();
+        if (this.storm) this.scene.remove(this.storm.wall);
+        if (this.builds) {
+            for (const p of this.builds.pieces) this.scene.remove(p);
+            this.scene.remove(this.builds.preview);
         }
     }
-    
-    updateDroppingPhase(deltaTime, currentTime, mouseDelta) {
-        // Handle glider deploy input
-        if (input.isJumping() && this.playerDrop.state === DropState.SKYDIVING) {
-            this.playerDrop.deployGlider();
-        }
-        
-        // Update drop physics with input and camera yaw
-        this.playerDrop.update(deltaTime, input, this.camera.yaw);
-        
-        // Update player position
-        this.player.setPosition(this.playerDrop.position);
-        
-        // Update camera
-        this.camera.handleMouseMove(mouseDelta.x, mouseDelta.y);
-        this.camera.updateTarget(this.playerDrop.position);
-        this.camera.update(this.gameScene.threeScene, this.colliders);
-        
-        // Update altitude display
-        this.hud.updateAltitude(this.playerDrop.position.y);
-        
-        // Check if landed
-        if (this.playerDrop.state === DropState.LANDED) {
-            this.phase = GamePhase.PLAYING;
-            this.hud.showGliderUI(false);
-            this.crosshair.show();
-            this.lastGroundedY = this.player.getPosition().y;
-            this.wasGrounded = true;
-        }
+
+    structures() {
+        return [...this.world.colliders, ...this.builds.pieces];
     }
-    
-    updatePlayingPhase(deltaTime, currentTime, mouseDelta) {
-        // Update camera with mouse
-        this.camera.handleMouseMove(mouseDelta.x, mouseDelta.y);
-        
-        // Handle build mode toggle
-        if (input.isToggleBuildMode()) {
-            this.isBuildMode = !this.isBuildMode;
-            this.hud.showBuildMode(this.isBuildMode);
-            if (this.isBuildMode) {
-                this.buildingSystem.showPreview(true);
-            } else {
-                this.buildingSystem.showPreview(false);
-            }
-        }
-        
-        // Handle building mode
-        if (this.isBuildMode) {
-            this.updateBuildMode(deltaTime, currentTime);
-        } else {
-            // Normal combat/movement update
-            this.updateCombatMode(deltaTime, currentTime);
-        }
-        
-        // Update player
-        this.player.update(deltaTime, input, currentTime);
-        
-        // Handle fall damage
-        this.handleFallDamage();
-        
-        // Update camera
-        this.camera.update(this.gameScene.threeScene, this.colliders);
-        
-        // Update bots
-        this.botManager.update(deltaTime, currentTime, this.player, this.camera);
-        
-        // Handle bot shooting
-        for (const bot of this.botManager.getAliveBots()) {
-            if (bot.state === 'engage') {
-                const shots = bot.shoot(currentTime, this.player);
-                if (shots) {
-                    this.handleBotShots(shots, bot);
-                }
-            }
-        }
-        
-        // Update storm
-        const stormDamage = this.storm.update(deltaTime, currentTime / 1000, this.player.getPosition());
-        if (stormDamage > 0) {
-            this.player.takeDamage(stormDamage);
-            this.hud.showDamageIndicator(stormDamage, window.innerWidth / 2, window.innerHeight / 2);
-        }
-        
-        // Update pickups
-        this.pickupManager.update(deltaTime, currentTime / 1000);
-        
-        // Check for nearby pickup
-        const nearbyPickup = this.pickupManager.getNearbyPickup(this.player.getPosition());
-        this.hud.showInteractPrompt(!!nearbyPickup);
-        
-        // Handle pickup collection
-        if (input.isInteracting() && nearbyPickup) {
-            const message = this.pickupManager.collectPickup(nearbyPickup, this.player);
-            if (message) {
-                this.hud.showPickupNotification(message);
-            }
-        }
-        
-        // Update projectiles
-        this.projectileManager.update(deltaTime);
-        
-        // Update building system preview position
-        if (this.isBuildMode) {
-            const playerPos = this.player.getPosition();
-            const lookDir = this.camera.getLookDirection();
-            this.buildingSystem.updatePreviewPosition(playerPos, lookDir, this.camera.yaw);
-        }
-        
-        // Update match
-        this.match.update(deltaTime, currentTime);
-        
-        // Update HUD
-        this.updateHUD(currentTime);
-        
-        // Update crosshair
-        const moveInput = input.getMovementInput();
-        const isMoving = moveInput.x !== 0 || moveInput.z !== 0;
-        this.crosshair.update(
-            deltaTime,
-            isMoving,
-            input.isSprinting(),
-            input.isShooting(),
-            input.isAiming()
-        );
-    }
-    
-    updateBuildMode(deltaTime, currentTime) {
-        // Build piece selection
-        const buildSwitch = input.getBuildPieceSwitch();
-        if (buildSwitch >= 0) {
-            this.buildingSystem.selectPiece(buildSwitch);
-            this.hud.updateBuildSlot(buildSwitch);
-        }
-        
-        // Rotate build
-        if (input.isRotateBuild()) {
-            this.buildingSystem.rotatePiece();
-        }
-        
-        // Cycle material
-        if (input.isCycleMaterial()) {
-            this.buildingSystem.cycleMaterial();
-            const mat = this.buildingSystem.getCurrentMaterial();
-            this.hud.updateMaterialType(mat.name, mat.cost);
-        }
-        
-        // Place build
-        if (input.isShooting()) {
-            const mat = this.buildingSystem.getCurrentMaterial();
-            const matKey = mat.name.toLowerCase();
-            
-            if (this.materials[matKey] >= mat.cost) {
-                const placed = this.buildingSystem.placePiece(this.player);
-                if (placed) {
-                    this.materials[matKey] -= mat.cost;
-                    this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
-                }
-            }
-        }
-    }
-    
-    updateCombatMode(deltaTime, currentTime) {
-        // Handle shooting
-        if (input.isShooting()) {
-            this.handlePlayerShoot(currentTime);
-        }
-    }
-    
-    handleFallDamage() {
-        const pos = this.player.getPosition();
-        const isGrounded = this.player.isGrounded;
-        
-        if (isGrounded && !this.wasGrounded) {
-            // Just landed
-            const fallHeight = this.lastGroundedY - pos.y;
-            if (fallHeight > 3) { // Minimum fall height for damage
-                const damage = Math.floor((fallHeight - 3) * 5); // 5 damage per meter over 3m
-                if (damage > 0) {
-                    this.player.takeDamage(damage);
-                    this.hud.showDamageIndicator(damage, window.innerWidth / 2, window.innerHeight / 2);
-                }
-            }
-        }
-        
-        if (isGrounded) {
-            this.lastGroundedY = pos.y;
-        }
-        
-        this.wasGrounded = isGrounded;
-    }
-    
-    handlePlayerShoot(currentTime) {
-        const shots = this.player.shoot(currentTime);
-        if (!shots) return;
-        
-        // Check if using pickaxe
-        const weapon = this.player.weaponManager.currentWeapon;
-        const isPickaxe = weapon.config && weapon.config.isPickaxe;
-        
-        for (const shot of shots) {
-            // Raycast for hit detection
-            const raycaster = new THREE.Raycaster(
-                shot.origin,
-                shot.direction,
-                0,
-                shot.range
-            );
-            
-            // Check against bots, world, and harvestables
-            const botMeshes = this.botManager.getAliveBots().map(b => b.mesh);
-            const harvestables = this.island.getHarvestables();
-            const buildPieces = this.buildingSystem ? this.buildingSystem.getColliders() : [];
-            const allTargets = [...this.colliders, ...botMeshes, ...harvestables, ...buildPieces];
-            
-            const intersects = raycaster.intersectObjects(allTargets, true);
-            
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                
-                // Check if hit a harvestable with pickaxe
-                if (isPickaxe) {
-                    const harvested = this.tryHarvest(hit, weapon.config.harvestDamage || 50);
-                    if (harvested) {
-                        this.projectileManager.createImpact(hit.point, false);
-                        this.hud.showHitmarker();
-                        continue;
-                    }
-                }
-                
-                // Create tracer (skip for pickaxe)
-                if (!isPickaxe) {
-                    this.projectileManager.createTracer(shot.origin, hit.point);
-                }
-                
-                // Check if hit a bot
-                let hitBot = null;
-                let obj = hit.object;
-                while (obj) {
-                    if (obj.userData && obj.userData.isBot) {
-                        hitBot = this.botManager.getBotById(obj.userData.botId);
-                        break;
-                    }
-                    obj = obj.parent;
-                }
-                
-                if (hitBot && hitBot.alive) {
-                    // Apply damage
-                    hitBot.takeDamage(shot.damage);
-                    this.projectileManager.createImpact(hit.point, true);
-                    this.hud.showHitmarker();
-                    
-                    // Check if killed
-                    if (!hitBot.alive) {
-                        this.match.addKill();
-                        this.hud.addKillFeedEntry('You', hitBot.name, this.player.weaponManager.currentWeapon.config.name);
-                        
-                        // Drop loot
-                        this.pickupManager.spawnLootDrop(hitBot.getDropPosition());
-                    }
-                } else {
-                    // Hit world
-                    this.projectileManager.createImpact(hit.point, false);
-                }
-            } else if (!isPickaxe) {
-                // Miss - create tracer to max range
-                const endPoint = shot.origin.clone().add(
-                    shot.direction.clone().multiplyScalar(shot.range)
-                );
-                this.projectileManager.createTracer(shot.origin, endPoint);
-            }
-        }
-    }
-    
-    tryHarvest(hit, damage) {
-        let obj = hit.object;
-        
-        // Walk up to find harvestable parent
-        while (obj) {
-            if (obj.userData && obj.userData.harvestable) {
-                // Found harvestable
-                obj.userData.health -= 1;
-                
-                if (obj.userData.health <= 0) {
-                    // Destroyed - give materials
-                    const harvestType = HARVEST_TYPES[obj.userData.harvestType];
-                    if (harvestType) {
-                        this.materials[harvestType.gives] += harvestType.amount;
-                        this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
-                        this.hud.showPickupNotification(`+${harvestType.amount} ${harvestType.gives.toUpperCase()}`);
-                    }
-                    
-                    // Remove the harvestable
-                    this.island.removeHarvestable(obj);
-                }
-                
-                return true;
-            }
-            obj = obj.parent;
-        }
-        
-        return false;
-    }
-    
-    handleBotShots(shots, bot) {
-        for (const shot of shots) {
-            const raycaster = new THREE.Raycaster(
-                shot.origin,
-                shot.direction,
-                0,
-                shot.range
-            );
-            
-            // Check against player and world
-            const targets = [...this.colliders, this.player.mesh];
-            const intersects = raycaster.intersectObjects(targets, true);
-            
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                
-                // Create tracer
-                this.projectileManager.createTracer(shot.origin, hit.point, 0xFF4444);
-                
-                // Check if hit player
-                let hitPlayer = false;
-                let obj = hit.object;
-                while (obj) {
-                    if (obj === this.player.mesh) {
-                        hitPlayer = true;
-                        break;
-                    }
-                    obj = obj.parent;
-                }
-                
-                if (hitPlayer) {
-                    this.player.takeDamage(shot.damage);
-                    this.projectileManager.createImpact(hit.point, true);
-                    
-                    // Show damage direction indicator
-                    this.hud.showDamageDirection(
-                        this.camera.yaw,
-                        bot.position,
-                        this.player.getPosition()
-                    );
-                    
-                    // Show damage number
-                    this.hud.showDamageIndicator(
-                        shot.damage,
-                        window.innerWidth / 2 + (Math.random() - 0.5) * 100,
-                        window.innerHeight / 2 + (Math.random() - 0.5) * 50
-                    );
-                } else {
-                    this.projectileManager.createImpact(hit.point, false);
-                }
-            }
-        }
-    }
-    
-    updateHUD(currentTime) {
-        // Health and shield
-        this.hud.updateHealth(this.player.health, this.player.maxHealth);
-        this.hud.updateShield(this.player.shield, this.player.maxShield);
-        
-        // Update low health vignette
-        this.hud.updateHealthVignette(this.player.health, this.player.maxHealth);
-        
-        // Ammo
-        const weapon = this.player.weaponManager.currentWeapon;
-        if (weapon.config && weapon.config.isPickaxe) {
-            this.hud.updateAmmo('∞', '');
-        } else {
-            this.hud.updateAmmo(weapon.ammo, weapon.reserveAmmo);
-        }
-        
-        // Weapon slot
-        this.hud.updateWeaponSlot(this.player.weaponManager.currentIndex);
-        
-        // Reload indicator
-        this.hud.showReloading(weapon.isReloading);
-        
-        // Storm
-        this.hud.updateStorm(this.storm.getPhaseInfo());
-        
-        // Storm warning
-        const isOutside = this.storm.isOutsideStorm(this.player.getPosition());
-        this.hud.showStormWarning(isOutside);
-        
-        // Alive count
-        this.hud.updateAliveCount(this.match.getAliveCount());
-        
-        // Materials
-        this.hud.updateMaterials(this.materials.wood, this.materials.stone, this.materials.metal);
-        
-        // Minimap
-        this.hud.updateMinimap(
-            this.player.getPosition(),
-            this.camera.yaw,
-            this.storm.center,
-            this.storm.currentRadius,
-            this.botManager.bots
-        );
-    }
-    
-    onMatchEnd(result) {
-        this.isRunning = false;
-        
-        // Exit pointer lock
+
+    endMatch(victory, cause = '') {
+        this.phase = Phase.ENDED;
         document.exitPointerLock();
-        
-        // Show game over screen
-        this.menu.showGameover(result, this.match.getStats());
+        this.hud.show(false);
+        const title = document.getElementById('end-title');
+        const mins = ((performance.now() / 1000 - this.matchStart) / 60);
+        title.textContent = victory ? '👑 VICTORY ROYALE' : 'ELIMINATED';
+        title.className = victory ? 'victory' : 'defeat';
+        const place = victory ? 1 : this.bots.alive.length + 2 - 1;
+        document.getElementById('end-stats').innerHTML =
+            `${victory ? '' : `#${place} of ${BOT_COUNT + 1} &middot; ${cause}<br>`}` +
+            `${this.kills} elimination${this.kills === 1 ? '' : 's'} &middot; survived ${mins.toFixed(1)} min`;
+        document.getElementById('end-screen').classList.remove('hidden');
+    }
+
+    // ------------------------------------------------------------ frame
+    frame() {
+        const dt = Math.min(this.clock.getDelta(), 0.05);
+        const t = performance.now() / 1000;
+
+        switch (this.phase) {
+            case Phase.BUS: this.tickBus(dt, t); break;
+            case Phase.DROPPING: this.tickDrop(dt, t); break;
+            case Phase.PLAYING: this.tickPlaying(dt, t); break;
+        }
+
+        this.fx.update(dt);
+        input.endFrame();
+
+        // Self-heal canvas/camera if the window was 0-sized at load (hidden tab)
+        const w = window.innerWidth, h = window.innerHeight;
+        if (w > 0 && h > 0) {
+            const size = this.renderer.getSize(new THREE.Vector2());
+            if (size.x !== w || size.y !== h) {
+                this.renderer.setSize(w, h);
+                this.cam.camera.aspect = w / h;
+                this.cam.camera.updateProjectionMatrix();
+            }
+        }
+        this.renderer.render(this.scene, this.cam.camera);
+    }
+
+    tickBus(dt, t) {
+        this.bus.update(dt);
+        const p = this.bus.position;
+        this.cam.camera.position.set(p.x - 18, p.y + 12, p.z + 18);
+        this.cam.camera.lookAt(p);
+
+        this.hud.drawMinimap(p, this.cam.yaw, this.storm, this.bus);
+        this.storm.update(dt);
+        this.hud.setMatch(this.bots.alive.length + 1, this.kills, this.storm.phaseInfo);
+
+        if ((input.jump() && this.bus.canDrop) || this.bus.done) {
+            const dropPos = this.bus.done
+                ? new THREE.Vector3(rand(-80, 80), 110, rand(-80, 80))
+                : this.bus.position.clone();
+            this.drop.start(dropPos);
+            this.player.setPosition(dropPos);
+            this.player.mesh.visible = true;
+            this.phase = Phase.DROPPING;
+            this.hud.setPhaseUI('dropping', dropPos.y);
+            this.bus.dispose();
+        }
+    }
+
+    tickDrop(dt, t) {
+        if (input.jump()) this.drop.deployGlider();
+        this.cam.look(input.dx, input.dy);
+        this.drop.update(dt, input, this.cam.forwardFlat(), this.cam.rightFlat());
+        this.player.setPosition(this.drop.position);
+        this.player.mesh.rotation.y = this.cam.yaw;
+        this.cam.update(dt, this.drop.position, this.structures());
+
+        const alt = this.drop.position.y - this.world.getHeight(this.drop.position.x, this.drop.position.z);
+        this.hud.setPhaseUI('dropping', alt);
+        this.hud.drawMinimap(this.drop.position, this.cam.yaw, this.storm, null);
+        this.storm.update(dt);
+        this.bots.update(dt, t, this.botCtx());
+        this.hud.setMatch(this.bots.alive.length + 1, this.kills, this.storm.phaseInfo);
+
+        if (this.drop.state === DropState.LANDED) {
+            this.phase = Phase.PLAYING;
+            this.hud.setPhaseUI('playing');
+            this.hud.notifyMsg('Good luck!');
+        }
+    }
+
+    botCtx() {
+        return {
+            world: this.world,
+            player: this.player,
+            // bots work in x/z; storm center is a Vector2 (x, y=z-in-world)
+            storm: { center: { x: this.storm.center.x, z: this.storm.center.y }, radius: this.storm.radius, dps: this.storm.dps },
+            structures: this.structures(),
+            buildSystem: this.builds,
+        };
+    }
+
+    tickPlaying(dt, t) {
+        this.cam.look(input.dx, input.dy);
+
+        // ---- build mode toggle ----
+        if (input.toggleBuild()) {
+            this.buildMode = !this.buildMode;
+            this.builds.setActive(this.buildMode);
+        }
+
+        const w = this.player.arsenal.current;
+        const aiming = input.aiming() && !this.buildMode && !w.cfg.melee;
+        this.cam.setAim(aiming, aiming ? w.cfg.adsZoom : 1);
+        this.hud.setScope(aiming && !!w.cfg.scope);
+
+        if (this.buildMode) {
+            this.tickBuildMode(t);
+        } else {
+            this.tickCombat(t, aiming);
+        }
+
+        // ---- player + camera ----
+        const structures = this.structures();
+        this.player.update(dt, input, this.world, structures);
+        this.cam.update(dt, this.player.position, structures);
+
+        // ---- bots ----
+        this.bots.update(dt, t, this.botCtx());
+        for (const bot of this.bots.alive) {
+            const shots = bot.tryShoot(t, this.player);
+            if (shots) this.resolveBotShots(shots, bot);
+        }
+        this.bots.simulateFights(t, (k, v) => this.hud.killFeed(k, v));
+        this.bots.applyStormDamage(dt, { center: { x: this.storm.center.x, z: this.storm.center.y }, radius: this.storm.radius, dps: this.storm.dps },
+            (k, v) => this.hud.killFeed(k, v));
+
+        // ---- storm ----
+        this.storm.update(dt);
+        const outside = this.storm.isOutside(this.player.position);
+        this.hud.setStormWarning(outside);
+        if (outside) this.player.takeDamage(this.storm.dps * dt);
+
+        // ---- loot & chests ----
+        this.loot.update(t);
+        const chest = this.world.nearestChest(this.player.position);
+        const item = chest ? null : this.loot.nearest(this.player.position);
+        this.hud.setInteract(chest ? '[E] Open Chest' : item ? `[E] ${this.loot.label(item)}` : null);
+        if (input.interact()) {
+            if (chest) {
+                this.world.openChest(chest);
+                for (const drop of this.loot.chestLoot()) {
+                    const p = chest.position.clone();
+                    p.x += rand(-0.8, 0.8); p.z += rand(-0.8, 0.8);
+                    this.loot.spawnAt(p, drop);
+                }
+                this.hud.notifyMsg('Chest opened!');
+            } else if (item) {
+                this.hud.notifyMsg(this.loot.collect(item, this.player));
+            }
+        }
+
+        // ---- weapon switching ----
+        if (!this.buildMode) {
+            const slot = input.slot();
+            if (slot >= 0 && this.player.arsenal.switchTo(slot)) this.player.refreshGunMesh();
+            if (input.reload()) w.startReload(t);
+        }
+
+        // ---- crosshair spread ----
+        const moving = Math.hypot(this.player.velocity.x, this.player.velocity.z) > 1;
+        const target = aiming ? 3 : moving ? 14 : 8;
+        this.crossSpread = lerp(this.crossSpread, target, damp(10, dt));
+        this.hud.setCrosshairSpread(this.crossSpread);
+
+        // ---- HUD ----
+        this.hud.setVitals(this.player.health, this.player.maxHealth, this.player.shield, this.player.maxShield);
+        this.hud.setMats(this.player.materials);
+        this.hud.setAmmo(this.player.arsenal.current, t);
+        this.hud.setHotbar(this.player.arsenal);
+        this.hud.setMatch(this.bots.alive.length + 1, this.kills, this.storm.phaseInfo);
+        this.hud.setBuildMode(this.buildMode, this.builds, this.player.materials);
+        this.hud.drawMinimap(this.player.position, this.cam.yaw, this.storm, null);
+
+        // ---- end conditions ----
+        if (!this.player.alive) {
+            this.endMatch(false, outside ? 'Lost to the storm' : 'Eliminated');
+        } else if (this.bots.alive.length === 0) {
+            this.endMatch(true);
+        }
+    }
+
+    tickBuildMode(t) {
+        const piece = input.buildPiece();
+        if (piece >= 0) this.builds.selectPiece(piece);
+        if (input.buttonsJust[2]) this.builds.cycleMaterial();
+        if (input.rotateBuild()) this.builds.rotate();
+
+        this.builds.updatePreviewDir(
+            this.player.position,
+            this.cam.forwardFlat(),
+            (x, z) => this.world.getHeight(x, z)
+        );
+
+        if (input.firing()) {
+            const mat = this.builds.material;
+            const key = this.builds.materialKey;
+            if (this.player.materials[key] >= mat.cost) {
+                if (this.builds.place()) {
+                    this.player.materials[key] -= mat.cost;
+                }
+            } else if (input.fireJust()) {
+                this.hud.notifyMsg(`Not enough ${mat.name.toLowerCase()}!`);
+            }
+        }
+    }
+
+    tickCombat(t, aiming) {
+        const w = this.player.arsenal.current;
+        const wantFire = w.cfg.auto ? input.firing() : input.fireJust();
+        if (!wantFire) return;
+
+        // Fire along the exact crosshair ray so shots land where you aim.
+        const { origin, direction } = this.cam.aimRay();
+        // Push origin forward past the player so you can't shoot yourself
+        const shotOrigin = origin.clone().addScaledVector(direction, w.cfg.melee ? 1.2 : 2.6);
+        const shots = w.fire(t, shotOrigin, direction, aiming);
+        if (!shots) {
+            if (w.ammo === 0 && !w.reloading && !w.cfg.melee) w.startReload(t);
+            return;
+        }
+
+        this.cam.kick(w.cfg.recoil || 0);
+        // Muzzle flash near the player's gun
+        if (!w.cfg.melee) {
+            const muzzle = this.player.position.clone();
+            muzzle.y += 1.4;
+            muzzle.addScaledVector(direction, 0.9);
+            this.fx.muzzle(muzzle);
+        }
+
+        for (const shot of shots) this.resolvePlayerShot(shot, w, t);
+    }
+
+    resolvePlayerShot(shot, weapon, t) {
+        this.raycaster.set(shot.origin, shot.direction);
+        this.raycaster.far = shot.range;
+
+        const targets = [
+            this.world.terrain,
+            ...this.world.colliders,
+            ...this.world.harvestables,
+            ...this.builds.pieces,
+            ...this.bots.alive.map(b => b.mesh),
+        ];
+        const hits = this.raycaster.intersectObjects(targets, true);
+        const hit = hits.find(h => h.object.visible);
+
+        const tracerFrom = this.player.position.clone();
+        tracerFrom.y += 1.4;
+
+        if (!hit) {
+            if (!weapon.cfg.melee) {
+                this.fx.tracer(tracerFrom, shot.origin.clone().addScaledVector(shot.direction, shot.range));
+            }
+            return;
+        }
+
+        if (!weapon.cfg.melee) this.fx.tracer(tracerFrom, hit.point);
+
+        // 1) bot?
+        const bot = hit.object.userData.bot;
+        if (bot && bot.alive) {
+            const headshot = hit.object.userData.isHead === true;
+            const dmg = Math.round(shot.damage * (headshot ? shot.headshotMult : 1));
+            bot.takeDamage(dmg);
+            this.fx.impact(hit.point, true);
+            this.hud.hitmarker(headshot);
+            this.hud.damageNumber(dmg, headshot);
+            if (!bot.alive) {
+                this.kills++;
+                this.hud.killFeed('You', bot.name);
+                this.hud.notifyMsg(`Eliminated ${bot.name}!`);
+                // Bots drop their weapon + a consumable
+                this.loot.spawnAt(bot.position.clone(), { kind: 'weapon', item: bot.weapon });
+                this.loot.spawnAt(bot.position.clone().add(new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1))),
+                    Math.random() < 0.5 ? { kind: 'ammo', amount: 30 } : { kind: 'minis' });
+            }
+            return;
+        }
+
+        // 2) harvestable (pickaxe farms, guns just damage-impact)
+        if (hit.object.userData.harvestRoot) {
+            if (weapon.cfg.melee) {
+                const result = this.world.harvestHit(hit.object);
+                if (result && result !== 'hit') {
+                    this.player.materials[result.gives] += result.amount;
+                    this.hud.notifyMsg(`+${result.amount} ${result.gives}`);
+                }
+                this.hud.hitmarker(false);
+            }
+            this.fx.impact(hit.point, false);
+            return;
+        }
+
+        // 3) placed build piece — damage it
+        if (hit.object.userData.build) {
+            const dmg = weapon.cfg.melee ? 50 : shot.damage;
+            this.builds.damage(hit.object, dmg);
+            this.fx.impact(hit.point, false);
+            this.hud.hitmarker(false);
+            return;
+        }
+
+        // 4) world
+        this.fx.impact(hit.point, false);
+    }
+
+    resolveBotShots(shots, bot) {
+        for (const shot of shots) {
+            this.raycaster.set(shot.origin, shot.direction);
+            this.raycaster.far = shot.range;
+            const targets = [this.world.terrain, ...this.world.colliders, ...this.builds.pieces, this.player.mesh];
+            const hits = this.raycaster.intersectObjects(targets, true);
+            if (!hits.length) {
+                this.fx.tracer(shot.origin, shot.origin.clone().addScaledVector(shot.direction, Math.min(shot.range, 60)), 0xff6655);
+                continue;
+            }
+            const hit = hits[0];
+            this.fx.tracer(shot.origin, hit.point, 0xff6655);
+
+            let node = hit.object, hitPlayer = false;
+            while (node) {
+                if (node === this.player.mesh) { hitPlayer = true; break; }
+                node = node.parent;
+            }
+            if (hitPlayer) {
+                this.player.takeDamage(shot.damage);
+                this.fx.impact(hit.point, true);
+            } else if (hit.object.userData.build) {
+                this.builds.damage(hit.object, shot.damage);
+                this.fx.impact(hit.point, false);
+            } else {
+                this.fx.impact(hit.point, false);
+            }
+        }
     }
 }
 
-// Start the game
-const game = new Game();
+// Exposed for debugging/automation
+window.game = new Game();

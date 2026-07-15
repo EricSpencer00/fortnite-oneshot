@@ -1,1057 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battle Royale - One Shot</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            overflow: hidden;
-            background: #000;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        #game-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-
-        canvas {
-            display: block;
-        }
-
-        /* HUD Styles */
-        #hud {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 100;
-        }
-
-        /* Health and Shield Bars */
-        #health-shield-container {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            width: 400px;
-        }
-
-        .bar-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .bar-icon {
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-        }
-
-        .bar-wrapper {
-            flex: 1;
-            height: 20px;
-            background: rgba(0, 0, 0, 0.6);
-            border-radius: 4px;
-            overflow: hidden;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .bar-fill {
-            height: 100%;
-            transition: width 0.2s ease;
-        }
-
-        #health-bar {
-            background: linear-gradient(to right, #2ecc71, #27ae60);
-        }
-
-        #shield-bar {
-            background: linear-gradient(to right, #3498db, #2980b9);
-        }
-
-        .bar-text {
-            width: 50px;
-            text-align: right;
-            color: white;
-            font-weight: bold;
-            font-size: 14px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        }
-
-        /* Ammo Display */
-        #ammo-display {
-            position: absolute;
-            bottom: 40px;
-            right: 40px;
-            color: white;
-            font-size: 32px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            display: flex;
-            align-items: baseline;
-            gap: 5px;
-        }
-
-        #ammo-current {
-            font-size: 48px;
-        }
-
-        #ammo-reserve {
-            font-size: 24px;
-            opacity: 0.7;
-        }
-
-        /* Weapon Slots */
-        #weapon-slots {
-            position: absolute;
-            bottom: 100px;
-            right: 40px;
-            display: flex;
-            gap: 8px;
-        }
-
-        .weapon-slot {
-            width: 80px;
-            height: 60px;
-            background: rgba(0, 0, 0, 0.6);
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
-        }
-
-        .weapon-slot.active {
-            border-color: #f1c40f;
-            background: rgba(241, 196, 15, 0.3);
-        }
-
-        .weapon-slot .key {
-            position: absolute;
-            top: 4px;
-            left: 4px;
-            font-size: 10px;
-            opacity: 0.7;
-        }
-
-        .weapon-slot .weapon-name {
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-
-        /* Materials Display */
-        #materials-display {
-            position: absolute;
-            bottom: 100px;
-            left: 40px;
-            display: flex;
-            gap: 15px;
-        }
-
-        .material-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 8px 15px;
-            background: rgba(0, 0, 0, 0.6);
-            border-radius: 8px;
-            border: 2px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .material-icon {
-            font-size: 24px;
-            margin-bottom: 4px;
-        }
-
-        .material-count {
-            color: white;
-            font-weight: bold;
-            font-size: 18px;
-        }
-
-        .material-item.wood { border-color: #8B4513; }
-        .material-item.stone { border-color: #808080; }
-        .material-item.metal { border-color: #4682B4; }
-
-        /* Build Mode UI */
-        #build-mode-overlay {
-            position: absolute;
-            bottom: 170px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        #build-mode-overlay.show {
-            display: flex;
-        }
-
-        #build-mode-label {
-            color: #f1c40f;
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        }
-
-        #build-slots {
-            display: flex;
-            gap: 8px;
-        }
-
-        .build-slot {
-            width: 60px;
-            height: 60px;
-            background: rgba(0, 0, 0, 0.6);
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-        }
-
-        .build-slot.active {
-            border-color: #f1c40f;
-            background: rgba(241, 196, 15, 0.3);
-        }
-
-        .build-slot .build-icon {
-            font-size: 24px;
-        }
-
-        .build-slot .build-key {
-            font-size: 10px;
-            opacity: 0.7;
-        }
-
-        #material-type-indicator {
-            margin-top: 8px;
-            padding: 5px 15px;
-            background: rgba(0, 0, 0, 0.6);
-            border-radius: 4px;
-            color: white;
-            font-size: 12px;
-        }
-
-        /* Edit Mode UI */
-        #edit-mode-overlay {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            display: none;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 20px;
-            border-radius: 10px;
-            border: 2px solid #f1c40f;
-        }
-
-        #edit-mode-overlay.show {
-            display: block;
-        }
-
-        #edit-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 40px);
-            gap: 4px;
-        }
-
-        .edit-cell {
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 255, 255, 0.3);
-            border: 2px solid rgba(255, 255, 255, 0.5);
-            cursor: pointer;
-        }
-
-        .edit-cell.selected {
-            background: rgba(241, 196, 15, 0.8);
-        }
-
-        #edit-hint {
-            color: white;
-            font-size: 12px;
-            text-align: center;
-            margin-top: 10px;
-        }
-
-        /* Battle Bus UI */
-        #bus-ui {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            display: none;
-        }
-
-        #bus-ui.show {
-            display: block;
-        }
-
-        #bus-text {
-            color: white;
-            font-size: 36px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-            margin-bottom: 20px;
-        }
-
-        #jump-prompt {
-            color: #f1c40f;
-            font-size: 24px;
-            animation: pulse 1s infinite;
-        }
-
-        /* Glider UI */
-        #glider-ui {
-            position: absolute;
-            bottom: 300px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: none;
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-        }
-
-        #glider-ui.show {
-            display: block;
-        }
-
-        #altitude-display {
-            font-size: 36px;
-            color: #3498db;
-        }
-
-        /* Damage Direction Indicator */
-        #damage-direction {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 200px;
-            height: 200px;
-            pointer-events: none;
-        }
-
-        .damage-arc {
-            position: absolute;
-            top: 0;
-            left: 50%;
-            width: 6px;
-            height: 60px;
-            margin-left: -3px;
-            background: linear-gradient(to bottom, rgba(255, 0, 0, 0.9), rgba(255, 0, 0, 0));
-            border-radius: 3px;
-            transform-origin: center 100px;
-            opacity: 0;
-            animation: damageFade 1s ease-out forwards;
-        }
-
-        @keyframes damageFade {
-            0% { opacity: 1; }
-            70% { opacity: 0.8; }
-            100% { opacity: 0; }
-        }
-
-        /* Low health vignette */
-        #low-health-vignette {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            background: radial-gradient(ellipse at center, transparent 40%, rgba(139, 0, 0, 0.6) 100%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            z-index: 99;
-        }
-
-        /* Mini Map */
-        #minimap-container {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 180px;
-            height: 180px;
-            background: rgba(0, 0, 0, 0.5);
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        #minimap {
-            width: 100%;
-            height: 100%;
-        }
-
-        /* Storm Timer */
-        #storm-info {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(128, 0, 128, 0.7);
-            padding: 10px 30px;
-            border-radius: 8px;
-            color: white;
-            font-weight: bold;
-            text-align: center;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-        }
-
-        #storm-phase {
-            font-size: 12px;
-            opacity: 0.8;
-        }
-
-        #storm-timer {
-            font-size: 24px;
-        }
-
-        /* Kill Feed */
-        #kill-feed {
-            position: absolute;
-            top: 80px;
-            right: 20px;
-            width: 250px;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .kill-entry {
-            background: rgba(0, 0, 0, 0.6);
-            padding: 8px 12px;
-            border-radius: 4px;
-            color: white;
-            font-size: 12px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateX(20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-
-        /* Alive Counter */
-        #alive-counter {
-            position: absolute;
-            top: 220px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 10px 20px;
-            border-radius: 8px;
-            color: white;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        #alive-counter .icon {
-            font-size: 20px;
-        }
-
-        #alive-count {
-            font-size: 24px;
-        }
-
-        /* Crosshair */
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-        }
-
-        .crosshair-line {
-            position: absolute;
-            background: white;
-            box-shadow: 0 0 2px rgba(0,0,0,0.8);
-        }
-
-        .crosshair-line.top {
-            width: 2px;
-            height: 12px;
-            top: -20px;
-            left: -1px;
-        }
-
-        .crosshair-line.bottom {
-            width: 2px;
-            height: 12px;
-            top: 8px;
-            left: -1px;
-        }
-
-        .crosshair-line.left {
-            width: 12px;
-            height: 2px;
-            top: -1px;
-            left: -20px;
-        }
-
-        .crosshair-line.right {
-            width: 12px;
-            height: 2px;
-            top: -1px;
-            left: 8px;
-        }
-
-        .crosshair-dot {
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            background: white;
-            border-radius: 50%;
-            top: -2px;
-            left: -2px;
-        }
-
-        /* Damage Indicator */
-        .damage-indicator {
-            position: absolute;
-            color: #e74c3c;
-            font-weight: bold;
-            font-size: 24px;
-            animation: damageFloat 1s ease-out forwards;
-            pointer-events: none;
-        }
-
-        @keyframes damageFloat {
-            0% { opacity: 1; transform: translateY(0); }
-            100% { opacity: 0; transform: translateY(-50px); }
-        }
-
-        /* Hitmarker */
-        #hitmarker {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        #hitmarker.show {
-            animation: hitmarkerPop 0.2s ease-out;
-        }
-
-        @keyframes hitmarkerPop {
-            0% { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
-            100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
-        }
-
-        .hitmarker-line {
-            position: absolute;
-            width: 15px;
-            height: 2px;
-            background: white;
-        }
-
-        .hitmarker-line:nth-child(1) {
-            transform: rotate(45deg) translate(8px, 8px);
-        }
-
-        .hitmarker-line:nth-child(2) {
-            transform: rotate(-45deg) translate(-8px, 8px);
-        }
-
-        .hitmarker-line:nth-child(3) {
-            transform: rotate(45deg) translate(-20px, -20px);
-        }
-
-        .hitmarker-line:nth-child(4) {
-            transform: rotate(-45deg) translate(20px, -20px);
-        }
-
-        /* Storm Warning */
-        #storm-warning {
-            position: absolute;
-            bottom: 150px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(128, 0, 128, 0.8);
-            padding: 15px 40px;
-            border-radius: 8px;
-            color: white;
-            font-weight: bold;
-            font-size: 18px;
-            display: none;
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
-        }
-
-        /* Menu Overlay */
-        #menu-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        #menu-overlay.hidden {
-            display: none;
-        }
-
-        #menu-title {
-            font-size: 72px;
-            font-weight: bold;
-            color: #f1c40f;
-            text-shadow: 4px 4px 8px rgba(0,0,0,0.5);
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 8px;
-        }
-
-        #menu-subtitle {
-            font-size: 24px;
-            color: white;
-            opacity: 0.7;
-            margin-bottom: 60px;
-        }
-
-        .menu-btn {
-            padding: 20px 80px;
-            font-size: 24px;
-            font-weight: bold;
-            text-transform: uppercase;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 10px;
-            transition: all 0.3s ease;
-            pointer-events: auto;
-        }
-
-        #start-btn {
-            background: linear-gradient(to right, #f1c40f, #f39c12);
-            color: #1a1a2e;
-        }
-
-        #start-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 30px rgba(241, 196, 15, 0.5);
-        }
-
-        #controls-info {
-            margin-top: 60px;
-            color: white;
-            opacity: 0.6;
-            text-align: center;
-            font-size: 14px;
-            line-height: 2;
-        }
-
-        /* Game Over Overlay */
-        #gameover-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        #gameover-overlay.show {
-            display: flex;
-        }
-
-        #gameover-title {
-            font-size: 72px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            text-transform: uppercase;
-        }
-
-        #gameover-title.victory {
-            color: #f1c40f;
-            text-shadow: 0 0 30px rgba(241, 196, 15, 0.5);
-        }
-
-        #gameover-title.defeat {
-            color: #e74c3c;
-            text-shadow: 0 0 30px rgba(231, 76, 60, 0.5);
-        }
-
-        #gameover-stats {
-            color: white;
-            font-size: 24px;
-            margin-bottom: 40px;
-            text-align: center;
-            line-height: 1.8;
-        }
-
-        #restart-btn {
-            background: linear-gradient(to right, #3498db, #2980b9);
-            color: white;
-        }
-
-        #restart-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 30px rgba(52, 152, 219, 0.5);
-        }
-
-        /* Reload Indicator */
-        #reload-indicator {
-            position: absolute;
-            bottom: 180px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            display: none;
-        }
-
-        #reload-indicator.show {
-            display: block;
-        }
-
-        /* Pickup Notification */
-        #pickup-notification {
-            position: absolute;
-            bottom: 220px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 30px;
-            border-radius: 8px;
-            color: #2ecc71;
-            font-weight: bold;
-            display: none;
-        }
-
-        #pickup-notification.show {
-            display: block;
-            animation: fadeInOut 2s ease forwards;
-        }
-
-        @keyframes fadeInOut {
-            0% { opacity: 0; }
-            20% { opacity: 1; }
-            80% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-
-        /* Interact Prompt */
-        #interact-prompt {
-            position: absolute;
-            bottom: 260px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 30px;
-            border-radius: 8px;
-            color: white;
-            font-weight: bold;
-            display: none;
-        }
-
-        #interact-prompt.show {
-            display: block;
-        }
-
-        /* Loading Screen */
-        #loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: #1a1a2e;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 2000;
-        }
-
-        #loading-screen.hidden {
-            display: none;
-        }
-
-        #loading-text {
-            color: white;
-            font-size: 24px;
-            margin-bottom: 30px;
-        }
-
-        #loading-bar-container {
-            width: 300px;
-            height: 10px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 5px;
-            overflow: hidden;
-        }
-
-        #loading-bar {
-            height: 100%;
-            background: #f1c40f;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oneshot Royale</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --accent: #ffd24d; }
+    body {
+        overflow: hidden; background: #05080f;
+        font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+        color: #fff; user-select: none;
+    }
+    #game-container { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    /* ---------- screens ---------- */
+    .screen {
+        position: fixed; inset: 0; z-index: 300;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at 50% 30%, #1a2f55 0%, #0a1020 70%);
+    }
+    .hidden { display: none !important; }
+    .title {
+        font-size: 64px; font-weight: 900; letter-spacing: 3px; font-style: italic;
+        background: linear-gradient(180deg, #ffe89a, #ff9a3d);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: 0 6px 24px rgba(255, 160, 60, 0.25);
+    }
+    .subtitle { margin-top: 6px; opacity: 0.65; letter-spacing: 6px; font-size: 14px; }
+    .big-btn {
+        margin-top: 40px; padding: 16px 64px; font-size: 22px; font-weight: 800;
+        letter-spacing: 2px; color: #101820; background: var(--accent);
+        border: none; border-radius: 6px; cursor: pointer; transition: transform 0.1s;
+    }
+    .big-btn:hover { transform: scale(1.05); background: #ffe27a; }
+    .controls-card {
+        margin-top: 36px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px; padding: 18px 28px; font-size: 14px; line-height: 1.9; opacity: 0.9;
+    }
+    .controls-card b { color: var(--accent); display: inline-block; min-width: 88px; }
+    #loading-bar-wrap { width: 320px; height: 8px; background: rgba(255,255,255,0.12); border-radius: 4px; margin-top: 30px; overflow: hidden; }
+    #loading-bar { width: 0%; height: 100%; background: var(--accent); transition: width 0.2s; }
+    #end-title { font-size: 56px; font-weight: 900; font-style: italic; }
+    #end-title.victory { color: var(--accent); text-shadow: 0 0 40px rgba(255,210,77,0.5); }
+    #end-title.defeat { color: #ff5a4c; }
+    #end-stats { margin-top: 18px; font-size: 20px; opacity: 0.85; text-align: center; line-height: 1.8; }
+
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; z-index: 100; display: none; }
+
+    #vignette { position: absolute; inset: 0; opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 45%, rgba(200,0,0,0.55) 100%);
+        transition: opacity 0.3s; }
+
+    #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; --spread: 8px; }
+    #crosshair .ch { position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
+    #crosshair .t { width: 2px; height: 8px; left: -1px; top: calc(-8px - var(--spread)); }
+    #crosshair .b { width: 2px; height: 8px; left: -1px; top: var(--spread); }
+    #crosshair .l { width: 8px; height: 2px; top: -1px; left: calc(-8px - var(--spread)); }
+    #crosshair .r { width: 8px; height: 2px; top: -1px; left: var(--spread); }
+    #crosshair .dot { width: 2px; height: 2px; left: -1px; top: -1px; border-radius: 50%; }
+    #crosshair.build .ch { background: #44ccff; }
+
+    #hitmarker { position: absolute; left: 50%; top: 50%; font-size: 26px; font-weight: 900;
+        transform: translate(-50%, -50%) scale(0); pointer-events: none; }
+    #hitmarker.pop { animation: hitpop 0.25s ease-out; }
+    @keyframes hitpop { 0% { transform: translate(-50%,-50%) scale(1.4); opacity: 1; }
+        100% { transform: translate(-50%,-50%) scale(0.7); opacity: 0; } }
+
+    #damage-numbers { position: absolute; inset: 0; }
+    .dmg-num { position: absolute; font-size: 24px; font-weight: 900; color: #fff;
+        text-shadow: 0 2px 4px #000; animation: dmgfloat 0.9s ease-out forwards; }
+    .dmg-num.head { color: var(--accent); font-size: 30px; }
+    @keyframes dmgfloat { to { transform: translateY(-60px); opacity: 0; } }
+
+    #scope-overlay { display: none; position: absolute; inset: 0;
+        background: radial-gradient(circle at center, transparent 28%, #000 30.5%); }
+    #scope-overlay::before, #scope-overlay::after { content: ''; position: absolute; background: rgba(0,0,0,0.8); }
+    #scope-overlay::before { left: 50%; top: 20%; width: 1px; height: 60%; }
+    #scope-overlay::after { top: 50%; left: 20%; height: 1px; width: 60%; }
+
+    /* vitals */
+    #vitals { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); width: 380px; }
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+    .bar-wrap { flex: 1; height: 16px; background: rgba(0,0,0,0.55); border-radius: 3px;
+        overflow: hidden; border: 1px solid rgba(255,255,255,0.25); }
+    .bar-fill { height: 100%; transition: width 0.15s; }
+    #shield-fill { background: linear-gradient(180deg, #6fd4ff, #2f9fe0); }
+    #health-fill { background: linear-gradient(180deg, #9fe86f, #4caf50); }
+    .bar-num { width: 34px; font-weight: 800; font-size: 14px; text-shadow: 0 1px 3px #000; }
+
+    /* materials */
+    #materials { position: absolute; bottom: 96px; right: 24px; display: flex; gap: 10px; }
+    .mat { background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 5px; padding: 6px 12px; font-weight: 800; font-size: 14px; }
+
+    /* ammo */
+    #ammo { position: absolute; bottom: 28px; right: 24px; text-align: right; }
+    #ammo-count { font-size: 34px; font-weight: 900; text-shadow: 0 2px 4px #000; }
+    #ammo-reserve { font-size: 18px; opacity: 0.7; }
+    #reload-wrap { display: none; width: 120px; height: 5px; background: rgba(0,0,0,0.6);
+        border-radius: 3px; margin-top: 4px; margin-left: auto; }
+    #reload-bar { height: 100%; background: var(--accent); border-radius: 3px; }
+
+    /* hotbar */
+    #hotbar { position: absolute; bottom: 28px; left: 24px; display: flex; gap: 6px; }
+    .hotbar-slot { width: 52px; height: 52px; background: rgba(0,0,0,0.55);
+        border: 2px solid rgba(255,255,255,0.15); border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 900; font-size: 17px; }
+    .hotbar-slot.active { background: rgba(255,255,255,0.15); }
+
+    /* build bar */
+    #build-bar { display: none; position: absolute; bottom: 96px; left: 24px; gap: 6px; }
+    .build-slot { background: rgba(0,30,50,0.65); border: 2px solid rgba(80,200,255,0.35);
+        border-radius: 6px; padding: 8px 12px; font-weight: 700; font-size: 13px; text-transform: capitalize; }
+    .build-slot.active { border-color: #44ccff; background: rgba(60,160,220,0.4); }
+    .build-slot.mat { border-color: var(--accent); }
+
+    /* top center: storm + alive */
+    #topbar { position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 18px; align-items: center;
+        background: rgba(0,0,0,0.5); padding: 8px 20px; border-radius: 8px; }
+    #topbar .stat { font-weight: 900; font-size: 18px; }
+    #topbar .lbl { font-size: 10px; opacity: 0.65; letter-spacing: 1px; text-align: center; }
+
+    /* minimap */
+    #minimap-wrap { position: absolute; top: 18px; right: 18px; border-radius: 8px; overflow: hidden;
+        border: 2px solid rgba(255,255,255,0.25); }
+    #minimap { display: block; }
+
+    /* killfeed */
+    #killfeed { position: absolute; top: 190px; right: 18px; width: 260px; text-align: right; font-size: 13px; }
+    .kill-entry { background: rgba(0,0,0,0.5); border-radius: 4px; padding: 4px 10px; margin-bottom: 4px; }
+    .kill-entry b { color: var(--accent); }
+
+    /* prompts */
+    #interact-prompt, #bus-prompt, #glider-prompt {
+        position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.65); padding: 10px 22px; border-radius: 6px;
+        font-weight: 700; font-size: 16px; display: none; border: 1px solid rgba(255,255,255,0.2); }
+    #bus-prompt, #glider-prompt { top: 30%; text-align: center; }
+    #altitude { font-size: 26px; font-weight: 900; color: var(--accent); }
+    #notify { position: absolute; left: 50%; top: 24%; transform: translateX(-50%);
+        font-size: 20px; font-weight: 800; color: var(--accent); text-shadow: 0 2px 6px #000;
+        opacity: 0; transition: opacity 0.3s; }
+    #storm-warning { display: none; position: absolute; left: 50%; top: 12%; transform: translateX(-50%);
+        color: #e879ff; font-weight: 900; font-size: 20px; text-shadow: 0 0 12px #a020c0;
+        animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.4; } }
+
+    #controls-hint { position: absolute; left: 24px; top: 18px; font-size: 12px; line-height: 1.7;
+        opacity: 0.55; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; }
+    #controls-hint b { color: var(--accent); }
+</style>
 </head>
 <body>
-    <div id="loading-screen">
-        <div id="loading-text">Loading Battle Royale...</div>
-        <div id="loading-bar-container">
-            <div id="loading-bar"></div>
-        </div>
+<div id="game-container"></div>
+
+<!-- Loading / menu -->
+<div id="menu-screen" class="screen">
+    <div class="title">ONESHOT ROYALE</div>
+    <div class="subtitle">BATTLE ROYALE &middot; RUNS IN YOUR BROWSER</div>
+    <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+    <button id="play-btn" class="big-btn hidden">DROP IN</button>
+    <div class="controls-card">
+        <div><b>WASD</b> move &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> jump / jump from bus / glider</div>
+        <div><b>Mouse</b> look &nbsp; <b>LMB</b> fire &nbsp; <b>RMB</b> aim &nbsp; <b>R</b> reload &nbsp; <b>1–5</b> weapons</div>
+        <div><b>E</b> open chests &amp; pick up loot &nbsp; <b>Pickaxe</b> harvest trees / rocks / cars</div>
+        <div><b>Q</b> build mode &nbsp; <b>1–4</b> wall / floor / ramp / roof &nbsp; <b>RMB</b> cycle material</div>
+    </div>
+</div>
+
+<!-- End screen -->
+<div id="end-screen" class="screen hidden">
+    <div id="end-title"></div>
+    <div id="end-stats"></div>
+    <button id="restart-btn" class="big-btn">PLAY AGAIN</button>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+    <div id="vignette"></div>
+    <div id="crosshair">
+        <div class="ch t"></div><div class="ch b"></div><div class="ch l"></div><div class="ch r"></div><div class="ch dot"></div>
+    </div>
+    <div id="hitmarker">✕</div>
+    <div id="damage-numbers"></div>
+    <div id="scope-overlay"></div>
+
+    <div id="topbar">
+        <div><div class="stat" id="alive-count">1</div><div class="lbl">ALIVE</div></div>
+        <div><div class="stat" id="kill-count">0</div><div class="lbl">ELIMS</div></div>
+        <div><div class="stat" id="storm-timer">0:00</div><div class="lbl">STORM</div></div>
     </div>
 
-    <div id="menu-overlay">
-        <div id="menu-title">Battle Royale</div>
-        <div id="menu-subtitle">One Shot Edition</div>
-        <button class="menu-btn" id="start-btn">Play</button>
-        <div id="controls-info">
-            WASD - Move | Mouse - Look | LMB - Shoot | RMB - Aim<br>
-            R - Reload | Shift - Sprint | Space - Jump | 1/2/3 - Weapons<br>
-            E - Pick Up Items | Q - Toggle Build Mode | F1-F4 - Build Pieces<br>
-            Right Click (Build) - Cycle Materials | G - Edit Build
-        </div>
+    <div id="minimap-wrap"><canvas id="minimap" width="150" height="150"></canvas></div>
+    <div id="killfeed"></div>
+
+    <div id="vitals">
+        <div class="bar-row"><div class="bar-wrap"><div class="bar-fill" id="shield-fill" style="width:0%"></div></div><div class="bar-num" id="shield-text">0</div></div>
+        <div class="bar-row"><div class="bar-wrap"><div class="bar-fill" id="health-fill" style="width:100%"></div></div><div class="bar-num" id="health-text">100</div></div>
     </div>
 
-    <div id="game-container"></div>
-
-    <div id="hud">
-        <!-- Low Health Vignette -->
-        <div id="low-health-vignette"></div>
-        
-        <!-- Damage Direction Indicator -->
-        <div id="damage-direction"></div>
-        
-        <!-- Health and Shield -->
-        <div id="health-shield-container">
-            <div class="bar-container">
-                <div class="bar-icon">🛡️</div>
-                <div class="bar-wrapper">
-                    <div class="bar-fill" id="shield-bar" style="width: 100%"></div>
-                </div>
-                <div class="bar-text" id="shield-text">100</div>
-            </div>
-            <div class="bar-container">
-                <div class="bar-icon">❤️</div>
-                <div class="bar-wrapper">
-                    <div class="bar-fill" id="health-bar" style="width: 100%"></div>
-                </div>
-                <div class="bar-text" id="health-text">100</div>
-            </div>
-        </div>
-
-        <!-- Ammo Display -->
-        <div id="ammo-display">
-            <span id="ammo-current">30</span>
-            <span>/</span>
-            <span id="ammo-reserve">90</span>
-        </div>
-
-        <!-- Weapon Slots -->
-        <div id="weapon-slots">
-            <div class="weapon-slot active" id="slot-0">
-                <span class="key">1</span>
-                <span class="weapon-name">⛏️</span>
-            </div>
-            <div class="weapon-slot" id="slot-1">
-                <span class="key">2</span>
-                <span class="weapon-name">AR</span>
-            </div>
-            <div class="weapon-slot" id="slot-2">
-                <span class="key">3</span>
-                <span class="weapon-name">Shotgun</span>
-            </div>
-            <div class="weapon-slot" id="slot-3">
-                <span class="key">4</span>
-                <span class="weapon-name">SMG</span>
-            </div>
-        </div>
-
-        <!-- Materials Display -->
-        <div id="materials-display">
-            <div class="material-item wood">
-                <span class="material-icon">🪵</span>
-                <span class="material-count" id="wood-count">0</span>
-            </div>
-            <div class="material-item stone">
-                <span class="material-icon">🪨</span>
-                <span class="material-count" id="stone-count">0</span>
-            </div>
-            <div class="material-item metal">
-                <span class="material-icon">🔩</span>
-                <span class="material-count" id="metal-count">0</span>
-            </div>
-        </div>
-
-        <!-- Build Mode UI -->
-        <div id="build-mode-overlay">
-            <div id="build-mode-label">BUILD MODE</div>
-            <div id="build-slots">
-                <div class="build-slot active" id="build-wall">
-                    <span class="build-icon">▯</span>
-                    <span class="build-key">F1</span>
-                </div>
-                <div class="build-slot" id="build-floor">
-                    <span class="build-icon">▭</span>
-                    <span class="build-key">F2</span>
-                </div>
-                <div class="build-slot" id="build-stair">
-                    <span class="build-icon">⟋</span>
-                    <span class="build-key">F3</span>
-                </div>
-                <div class="build-slot" id="build-cone">
-                    <span class="build-icon">△</span>
-                    <span class="build-key">F4</span>
-                </div>
-            </div>
-            <div id="material-type-indicator">WOOD (100)</div>
-        </div>
-
-        <!-- Edit Mode UI -->
-        <div id="edit-mode-overlay">
-            <div id="edit-grid">
-                <div class="edit-cell" data-index="0"></div>
-                <div class="edit-cell" data-index="1"></div>
-                <div class="edit-cell" data-index="2"></div>
-                <div class="edit-cell" data-index="3"></div>
-                <div class="edit-cell" data-index="4"></div>
-                <div class="edit-cell" data-index="5"></div>
-                <div class="edit-cell" data-index="6"></div>
-                <div class="edit-cell" data-index="7"></div>
-                <div class="edit-cell" data-index="8"></div>
-            </div>
-            <div id="edit-hint">Click cells to edit | G to confirm | ESC to cancel</div>
-        </div>
-
-        <!-- Battle Bus UI -->
-        <div id="bus-ui">
-            <div id="bus-text">ON THE BATTLE BUS</div>
-            <div id="jump-prompt">Press SPACE to jump!</div>
-        </div>
-
-        <!-- Glider UI -->
-        <div id="glider-ui">
-            <div>ALTITUDE</div>
-            <div id="altitude-display">0m</div>
-        </div>
-
-        <!-- Mini Map -->
-        <div id="minimap-container">
-            <canvas id="minimap"></canvas>
-        </div>
-
-        <!-- Storm Info -->
-        <div id="storm-info">
-            <div id="storm-phase">STORM CLOSING IN</div>
-            <div id="storm-timer">2:00</div>
-        </div>
-
-        <!-- Alive Counter -->
-        <div id="alive-counter">
-            <span class="icon">👤</span>
-            <span id="alive-count">20</span>
-            <span>Alive</span>
-        </div>
-
-        <!-- Kill Feed -->
-        <div id="kill-feed"></div>
-
-        <!-- Crosshair -->
-        <div id="crosshair">
-            <div class="crosshair-line top"></div>
-            <div class="crosshair-line bottom"></div>
-            <div class="crosshair-line left"></div>
-            <div class="crosshair-line right"></div>
-            <div class="crosshair-dot"></div>
-        </div>
-
-        <!-- Hitmarker -->
-        <div id="hitmarker">
-            <div class="hitmarker-line"></div>
-            <div class="hitmarker-line"></div>
-            <div class="hitmarker-line"></div>
-            <div class="hitmarker-line"></div>
-        </div>
-
-        <!-- Storm Warning -->
-        <div id="storm-warning">⚠️ YOU ARE OUTSIDE THE SAFE ZONE ⚠️</div>
-
-        <!-- Reload Indicator -->
-        <div id="reload-indicator">RELOADING...</div>
-
-        <!-- Pickup Notification -->
-        <div id="pickup-notification"></div>
-
-        <!-- Interact Prompt -->
-        <div id="interact-prompt">Press E to pick up</div>
+    <div id="materials">
+        <div class="mat">🪵 <span id="mat-wood">0</span></div>
+        <div class="mat">🪨 <span id="mat-stone">0</span></div>
+        <div class="mat">⚙️ <span id="mat-metal">0</span></div>
     </div>
 
-    <!-- Game Over Overlay -->
-    <div id="gameover-overlay">
-        <div id="gameover-title">Victory Royale!</div>
-        <div id="gameover-stats">
-            <div>Eliminations: <span id="final-kills">0</span></div>
-            <div>Survival Time: <span id="final-time">0:00</span></div>
-        </div>
-        <button class="menu-btn" id="restart-btn">Play Again</button>
+    <div id="ammo">
+        <div><span id="ammo-count">∞</span><span id="ammo-reserve"></span></div>
+        <div id="reload-wrap"><div id="reload-bar"></div></div>
     </div>
 
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-        }
+    <div id="hotbar">
+        <div class="hotbar-slot"></div><div class="hotbar-slot"></div><div class="hotbar-slot"></div>
+        <div class="hotbar-slot"></div><div class="hotbar-slot"></div>
+    </div>
+
+    <div id="build-bar" style="display:none">
+        <div class="build-slot"></div><div class="build-slot"></div><div class="build-slot"></div>
+        <div class="build-slot"></div><div class="build-slot mat"></div>
+    </div>
+
+    <div id="interact-prompt"></div>
+    <div id="bus-prompt"><div>🚌 BATTLE BUS</div><div style="font-size:13px;opacity:0.8;margin-top:4px">Press <b style="color:var(--accent)">SPACE</b> to drop</div></div>
+    <div id="glider-prompt"><div id="altitude">0m</div><div style="font-size:13px;opacity:0.8;margin-top:4px"><b style="color:var(--accent)">SPACE</b> to deploy glider</div></div>
+    <div id="notify"></div>
+    <div id="storm-warning">⚠ GET INSIDE THE STORM CIRCLE ⚠</div>
+    <div id="controls-hint"><b>Q</b> build &nbsp; <b>E</b> loot &nbsp; <b>RMB</b> aim &nbsp; <b>R</b> reload</div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
     }
-    </script>
-    <script type="module" src="src/main.js"></script>
+}
+</script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
