@@ -744,6 +744,21 @@ struct FeedEntry {
     text: String,
     life: f32,
 }
+/// Lightweight 3D spark/debris particle. Cheap: a tiny fading cube.
+struct Particle {
+    pos: Vec3,
+    vel: Vec3,
+    life: f32,
+    max_life: f32,
+    size: f32,
+    color: Color,
+    gravity: f32,
+}
+/// Screen-space arrow marking the direction a recent hit came from.
+struct DamageDir {
+    dir: Vec2, // world XZ direction from player to attacker
+    life: f32,
+}
 
 // ============================================================ player
 struct Player {
@@ -831,12 +846,19 @@ struct Cam {
     recoil: f32,
     offset: Vec3, // current interp offset in camera space
     last_mouse: Vec2,
+    trauma: f32,     // 0..1 screen-shake energy, decays every frame
+    shake_off: Vec3, // per-frame positional jitter derived from trauma
+    fov_kick: f32,   // transient additive fov punch (firing / sprinting)
 }
 const HIP_OFFSET: Vec3 = vec3(0.9, 1.9, -3.8); // camera-space: -z is behind player? we define forward below
 const ADS_OFFSET: Vec3 = vec3(0.75, 1.7, -1.9);
 impl Cam {
     fn new() -> Self {
-        Cam { yaw: 0.0, pitch: -0.15, pos: Vec3::ZERO, fov: 1.15, aiming: false, recoil: 0.0, offset: HIP_OFFSET, last_mouse: Vec2::ZERO }
+        Cam { yaw: 0.0, pitch: -0.15, pos: Vec3::ZERO, fov: 1.15, aiming: false, recoil: 0.0, offset: HIP_OFFSET, last_mouse: Vec2::ZERO, trauma: 0.0, shake_off: Vec3::ZERO, fov_kick: 0.0 }
+    }
+    /// Add screen-shake energy (clamped). Bigger events pass bigger amounts.
+    fn add_trauma(&mut self, amt: f32) {
+        self.trauma = clampf(self.trauma + amt, 0.0, 1.0);
     }
     fn forward(&self) -> Vec3 {
         vec3(self.yaw.sin() * self.pitch.cos(), self.pitch.sin(), self.yaw.cos() * self.pitch.cos())
@@ -858,6 +880,12 @@ impl Cam {
         self.pitch += self.recoil * damp(30.0, dt);
         self.recoil *= 1.0 - damp(12.0, dt);
         self.fov = lerpf(self.fov, target_fov, damp(10.0, dt));
+        self.fov_kick *= 1.0 - damp(9.0, dt);
+
+        // trauma^2 shake so small hits are subtle and big ones snap hard
+        self.trauma = (self.trauma - dt * 1.6).max(0.0);
+        let s = self.trauma * self.trauma;
+        self.shake_off = vec3(rng(-1.0, 1.0), rng(-1.0, 1.0), rng(-1.0, 1.0)) * s * 0.35;
 
         let want = if self.aiming { ADS_OFFSET } else { HIP_OFFSET };
         self.offset = self.offset.lerp(want, damp(12.0, dt));
@@ -893,10 +921,10 @@ impl Cam {
     }
     fn camera3d(&self) -> Camera3D {
         Camera3D {
-            position: self.pos,
-            target: self.pos + self.forward(),
+            position: self.pos + self.shake_off,
+            target: self.pos + self.shake_off + self.forward(),
             up: vec3(0.0, 1.0, 0.0),
-            fovy: self.fov,
+            fovy: self.fov + self.fov_kick,
             ..Default::default()
         }
     }
@@ -941,11 +969,18 @@ struct Game {
     // fx + hud
     tracers: Vec<Tracer>,
     impacts: Vec<Impact>,
+    particles: Vec<Particle>,
     dmg_nums: Vec<DmgNum>,
     feed: Vec<FeedEntry>,
     notify: (String, f32),
     hitmarker: f32,
     hit_head: bool,
+    hit_flash: f32,     // white pop when you land a hit
+    elim_flash: f32,    // gold flash on elimination
+    dmg_flash: f32,     // red flash + shake when you take damage
+    dmg_dirs: Vec<DamageDir>,
+    muzzle_flash: f32,
+    muzzle_pos: Vec3,
     cross_spread: f32,
     match_time: f64,
     grabbed: bool,
@@ -972,14 +1007,42 @@ impl Game {
             build_rot: 0,
             tracers: Vec::new(),
             impacts: Vec::new(),
+            particles: Vec::new(),
             dmg_nums: Vec::new(),
             feed: Vec::new(),
             notify: (String::new(), 0.0),
             hitmarker: 0.0,
             hit_head: false,
+            hit_flash: 0.0,
+            elim_flash: 0.0,
+            dmg_flash: 0.0,
+            dmg_dirs: Vec::new(),
+            muzzle_flash: 0.0,
+            muzzle_pos: Vec3::ZERO,
             cross_spread: 8.0,
             match_time: 0.0,
             grabbed: false,
+        }
+    }
+
+    /// Spawn a burst of particles fanning out from `pos`.
+    fn burst(&mut self, pos: Vec3, base: Color, count: usize, speed: f32, up_bias: f32, size: f32, gravity: f32, life: f32) {
+        if self.particles.len() > 700 {
+            return; // hard cap so long fights don't pile up
+        }
+        for _ in 0..count {
+            let dir = vec3(rng(-1.0, 1.0), rng(-1.0, 1.0) + up_bias, rng(-1.0, 1.0)).normalize_or_zero();
+            let v = rng(0.4, 1.0);
+            let jitter = 0.85 + rng(0.0, 0.3);
+            self.particles.push(Particle {
+                pos,
+                vel: dir * speed * v,
+                life: life * jitter,
+                max_life: life * jitter,
+                size: size * (0.7 + rng(0.0, 0.6)),
+                color: base,
+                gravity,
+            });
         }
     }
 
@@ -989,8 +1052,16 @@ impl Game {
         self.loot.clear();
         self.tracers.clear();
         self.impacts.clear();
+        self.particles.clear();
         self.dmg_nums.clear();
+        self.dmg_dirs.clear();
         self.feed.clear();
+        self.muzzle_flash = 0.0;
+        self.hit_flash = 0.0;
+        self.elim_flash = 0.0;
+        self.dmg_flash = 0.0;
+        self.cam.trauma = 0.0;
+        self.cam.fov_kick = 0.0;
         self.storm = Storm::new();
         self.build_mode = false;
         self.match_time = 0.0;
@@ -1190,6 +1261,20 @@ impl Game {
         let origin = self.cam.pos + self.cam.forward() * 0.3;
         let muzzle = self.player.pos + vec3(0.0, 1.4, 0.0) + self.cam.forward_flat() * 0.7;
 
+        // firing punch: muzzle flash, a snap of shake and a little fov kick
+        if !cfg.melee {
+            self.muzzle_flash = 1.0;
+            self.muzzle_pos = muzzle;
+            let kick = (cfg.damage / 90.0).min(1.0);
+            self.cam.add_trauma(0.10 + 0.28 * kick);
+            self.cam.fov_kick += 0.015 + 0.05 * kick;
+            // a few sparks spat from the barrel
+            let fwd = self.cam.forward();
+            self.burst(muzzle + fwd * 0.4, Color::new(1.0, 0.85, 0.45, 1.0), 4, 6.0, 0.2, 0.07, 4.0, 0.14);
+        } else {
+            self.cam.add_trauma(0.08);
+        }
+
         for _ in 0..cfg.pellets {
             let mut dir = self.cam.forward();
             dir += vec3(rng(-spread, spread), rng(-spread, spread), rng(-spread, spread));
@@ -1215,11 +1300,19 @@ impl Game {
                     self.impacts.push(Impact { pos: point, life: 0.12, flesh: true });
                     self.hitmarker = 0.25;
                     self.hit_head = head;
+                    self.hit_flash = if head { 0.5 } else { 0.32 };
+                    let blood = Color::new(0.85, 0.12, 0.14, 1.0);
+                    self.burst(point, blood, if head { 10 } else { 6 }, 5.0, 0.3, 0.09, 9.0, 0.45);
                     self.dmg_nums.push(DmgNum { text: format!("{}", dmg.round() as i32), life: 0.9, off: vec2(rng(-40.0, 40.0), rng(-20.0, 20.0)), head });
                     if died {
                         self.player.kills += 1;
                         let drop_pos = self.bots[idx].pos;
                         let w = self.bots[idx].weapon.clone();
+                        self.elim_flash = 0.6;
+                        self.cam.add_trauma(0.35);
+                        // a bloom of confetti-ish debris where they fell
+                        self.burst(drop_pos + vec3(0.0, 1.0, 0.0), Color::new(1.0, 0.82, 0.3, 1.0), 26, 7.0, 0.6, 0.13, 8.0, 0.9);
+                        self.burst(drop_pos + vec3(0.0, 1.0, 0.0), blood, 14, 5.0, 0.4, 0.11, 10.0, 0.7);
                         self.feed(format!("You eliminated {}", name));
                         self.notify(format!("Eliminated {}!", name));
                         self.loot.push(Loot { pos: drop_pos, kind: LootKind::Gun(w) });
@@ -1231,19 +1324,25 @@ impl Game {
                 }
                 HitKind::BuildHit { idx, point } => {
                     let dmg = if cfg.melee { 50.0 } else { pellet_dmg };
+                    let mat = self.builds[idx].mat;
                     self.builds[idx].hp -= dmg;
-                    if self.builds[idx].hp <= 0.0 {
+                    let broke = self.builds[idx].hp <= 0.0;
+                    if broke {
                         self.builds[idx].alive = false;
                     }
                     self.impacts.push(Impact { pos: point, life: 0.12, flesh: false });
                     self.hitmarker = 0.18;
                     self.hit_head = false;
+                    let mut c = mat_color(mat);
+                    c.a = 1.0;
+                    self.burst(point, c, if broke { 16 } else { 5 }, 4.5, 0.3, 0.1, 11.0, 0.5);
                 }
                 HitKind::NodeHit { idx, point } => {
+                    let (mat, amount) = self.world.nodes[idx].kind.gives();
+                    let kind = self.world.nodes[idx].kind;
                     if cfg.melee {
                         let node = &mut self.world.nodes[idx];
                         node.hp -= 1;
-                        let (mat, amount) = node.kind.gives();
                         if node.hp <= 0 {
                             node.alive = false;
                             self.player.mats[mat] += amount;
@@ -1251,11 +1350,19 @@ impl Game {
                         }
                         self.hitmarker = 0.18;
                         self.hit_head = false;
+                        self.cam.add_trauma(0.12);
                     }
                     self.impacts.push(Impact { pos: point, life: 0.12, flesh: false });
+                    let c = match kind {
+                        HarvestKind::Tree => Color::new(0.42, 0.28, 0.15, 1.0),
+                        HarvestKind::Rock => Color::new(0.55, 0.56, 0.59, 1.0),
+                        HarvestKind::Car => Color::new(0.76, 0.23, 0.23, 1.0),
+                    };
+                    self.burst(point, c, 8, 4.0, 0.4, 0.1, 11.0, 0.5);
                 }
                 HitKind::WorldHit(point) => {
                     self.impacts.push(Impact { pos: point, life: 0.12, flesh: false });
+                    self.burst(point, Color::new(0.75, 0.7, 0.6, 1.0), 5, 3.5, 0.5, 0.08, 12.0, 0.4);
                 }
                 _ => {}
             }
@@ -1406,6 +1513,11 @@ impl Game {
                 HitKind::BotHit { idx, point, .. } if idx == usize::MAX => {
                     self.player.take_damage(damage);
                     self.impacts.push(Impact { pos: point, life: 0.12, flesh: true });
+                    self.dmg_flash = clampf(self.dmg_flash + 0.35 + damage / 200.0, 0.0, 0.85);
+                    self.cam.add_trauma(0.18 + damage / 180.0);
+                    let from = vec2(origin.x - self.player.pos.x, origin.z - self.player.pos.z).normalize_or_zero();
+                    self.dmg_dirs.push(DamageDir { dir: from, life: 1.1 });
+                    self.burst(point, Color::new(0.85, 0.12, 0.14, 1.0), 6, 4.0, 0.3, 0.09, 9.0, 0.4);
                 }
                 HitKind::BuildHit { idx, point } => {
                     self.builds[idx].hp -= damage;
@@ -1514,6 +1626,8 @@ impl Game {
         }
 
         // vertical
+        let was_airborne = !self.player.grounded;
+        let fall_speed = self.player.vel.y;
         let floor = self.floor_at(next.x, next.z, self.player.pos.y);
         if next.y <= floor {
             next.y = floor;
@@ -1521,6 +1635,12 @@ impl Game {
                 self.player.vel.y = 0.0;
             }
             self.player.grounded = true;
+            // landing thump: kick up dust and shake, scaled by impact speed
+            if was_airborne && fall_speed < -6.0 {
+                let hard = ((-fall_speed - 6.0) / 30.0).min(1.0);
+                self.cam.add_trauma(0.08 + 0.22 * hard);
+                self.burst(vec3(next.x, floor + 0.1, next.z), Color::new(0.72, 0.66, 0.55, 1.0), 6 + (hard * 10.0) as usize, 3.0 + 4.0 * hard, 0.7, 0.12, 10.0, 0.5);
+            }
         } else {
             self.player.grounded = next.y - floor < 0.05;
         }
@@ -1711,6 +1831,26 @@ fn draw_character(pos: Vec3, yaw: f32, shirt: Color, walk_phase: f32, weapon: Op
     }
 }
 
+/// A tracer with visible girth: a bright core wrapped in a translucent glow,
+/// faked by drawing the segment several times with small perpendicular offsets.
+fn draw_tracer(from: Vec3, to: Vec3, color: Color, width: f32) {
+    let dir = (to - from).normalize_or_zero();
+    if dir.length_squared() < 0.5 {
+        return;
+    }
+    let up = if dir.y.abs() > 0.9 { vec3(1.0, 0.0, 0.0) } else { vec3(0.0, 1.0, 0.0) };
+    let p1 = dir.cross(up).normalize_or_zero() * width;
+    let p2 = dir.cross(p1).normalize_or_zero() * width;
+    let glow = Color::new(color.r, color.g, color.b, color.a * 0.28);
+    for (o, w) in [(p1, 1.0), (-p1, 1.0), (p2, 1.0), (-p2, 1.0)] {
+        let _ = w;
+        draw_line_3d(from + o, to + o, glow);
+    }
+    // hot white-ish core
+    let core = Color::new((color.r + 1.0) * 0.5, (color.g + 1.0) * 0.5, (color.b + 0.7) * 0.5, 1.0);
+    draw_line_3d(from, to, core);
+}
+
 /// Cubes can't rotate in macroquad's immediate API — swap x/z extents on quarter turns.
 fn rot_size(size: Vec3, yaw: f32) -> Vec3 {
     let quarter = ((yaw / (std::f32::consts::PI / 2.0)).round() as i32).rem_euclid(2);
@@ -1729,6 +1869,20 @@ impl Game {
         }
         // water
         draw_plane(vec3(0.0, -0.4, 0.0), vec2(2000.0, 2000.0), None, Color::from_rgba(47, 127, 193, 235));
+
+        // drifting clouds: big soft translucent slabs high above, slowly moving
+        let drift = (t as f32) * 3.0;
+        for i in 0..10 {
+            let fi = i as f32;
+            let bx = ((fi * 97.13).sin() * HALF * 1.1) + (drift + fi * 40.0) % (WORLD_SIZE * 1.4) - WORLD_SIZE * 0.7;
+            let bz = (fi * 53.7).cos() * HALF * 1.1;
+            let cy = 78.0 + (fi * 7.0) % 26.0;
+            let w = 34.0 + (fi * 11.0) % 30.0;
+            let d = 20.0 + (fi * 6.0) % 16.0;
+            let cloud = Color::new(1.0, 1.0, 1.0, 0.5);
+            draw_cube(vec3(bx, cy, bz), vec3(w, 3.5, d), None, cloud);
+            draw_cube(vec3(bx + w * 0.2, cy + 2.5, bz - d * 0.15), vec3(w * 0.55, 3.0, d * 0.6), None, cloud);
+        }
 
         // houses
         for h in &self.world.houses {
@@ -1828,7 +1982,22 @@ impl Game {
 
         // fx
         for tr in &self.tracers {
-            draw_line_3d(tr.from, tr.to, tr.color);
+            draw_tracer(tr.from, tr.to, tr.color, 0.04);
+        }
+        // particles: fading, shrinking cubes
+        for p in &self.particles {
+            let f = clampf(p.life / p.max_life, 0.0, 1.0);
+            let mut c = p.color;
+            c.a = f;
+            draw_cube(p.pos, Vec3::splat(p.size * (0.35 + 0.65 * f)), None, c);
+        }
+        // muzzle flash: a bright star-ish burst at the barrel
+        if self.muzzle_flash > 0.0 {
+            let f = self.muzzle_flash;
+            let core = Color::new(1.0, 0.95, 0.7, f);
+            draw_cube(self.muzzle_pos, Vec3::splat(0.5 * f), None, core);
+            let halo = Color::new(1.0, 0.78, 0.35, f * 0.5);
+            draw_cube(self.muzzle_pos, Vec3::splat(0.9 * f), None, halo);
         }
         for im in &self.impacts {
             let c = if im.flesh { Color::new(1.0, 0.33, 0.27, 0.9) } else { Color::new(1.0, 0.87, 0.53, 0.9) };
@@ -2021,10 +2190,41 @@ impl Game {
         // minimap
         self.draw_minimap(sw, t);
 
-        // low-health vignette
-        if self.player.health < 35.0 {
-            let a = (1.0 - self.player.health / 35.0) * 0.35;
-            draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.6, 0.0, 0.0, a));
+        // hit-confirm pop: an expanding ring the moment you connect
+        if self.hit_flash > 0.0 {
+            let f = self.hit_flash / 0.5;
+            let r = 10.0 + (1.0 - f) * 26.0;
+            let c = if self.hit_head { gold } else { WHITE };
+            draw_circle_lines(sw / 2.0, sh / 2.0, r, 2.5, Color::new(c.r, c.g, c.b, f * 0.9));
+        }
+
+        // directional damage indicators around the crosshair
+        for d in &self.dmg_dirs {
+            let a = clampf(d.life / 1.1, 0.0, 1.0);
+            let fwd = vec2(self.cam.yaw.sin(), self.cam.yaw.cos());
+            let right = vec2(self.cam.yaw.cos(), -self.cam.yaw.sin());
+            let theta = (d.dir.dot(right)).atan2(d.dir.dot(fwd));
+            let (cx, cy) = (sw / 2.0, sh / 2.0);
+            let radius = 110.0;
+            let dirv = vec2(theta.sin(), -theta.cos());
+            let base = vec2(cx, cy) + dirv * radius;
+            let tang = vec2(-dirv.y, dirv.x);
+            let col = Color::new(1.0, 0.25, 0.2, a * 0.85);
+            draw_triangle(base + dirv * 14.0, base - dirv * 6.0 + tang * 16.0, base - dirv * 6.0 - tang * 16.0, col);
+        }
+
+        // damage tint (recent hits) + low-health vignette, combined
+        let low = if self.player.health < 35.0 { (1.0 - self.player.health / 35.0) * 0.4 } else { 0.0 };
+        let red = (self.dmg_flash * 0.5).max(low);
+        if red > 0.0 {
+            draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.65, 0.0, 0.0, red));
+        }
+        // elimination flash: warm edge glow
+        if self.elim_flash > 0.0 {
+            let a = self.elim_flash * 0.28;
+            let band = sh * 0.18;
+            draw_rectangle(0.0, 0.0, sw, band, Color::new(1.0, 0.8, 0.3, a));
+            draw_rectangle(0.0, sh - band, sw, band, Color::new(1.0, 0.8, 0.3, a));
         }
         let _ = dt;
     }
@@ -2053,6 +2253,31 @@ impl Game {
         let side = vec2(fwd.y, -fwd.x) * 0.45;
         draw_triangle(pm + fwd, pm - fwd * 0.4 + side, pm - fwd * 0.4 - side, WHITE);
     }
+}
+
+/// 2D gradient sky with a soft sun, drawn before the 3D pass each frame.
+fn draw_sky() {
+    let sw = screen_width();
+    let sh = screen_height();
+    let top = vec3(0.24, 0.42, 0.72);
+    let horizon = vec3(0.74, 0.83, 0.90);
+    let strips = 40usize;
+    for i in 0..strips {
+        let f0 = i as f32 / strips as f32;
+        let y = f0 * sh;
+        let hh = sh / strips as f32 + 1.0;
+        let f = clampf(f0 / 0.66, 0.0, 1.0);
+        let c = top.lerp(horizon, f);
+        draw_rectangle(0.0, y, sw, hh, Color::new(c.x, c.y, c.z, 1.0));
+    }
+    // soft sun: stacked translucent discs plus a bright core
+    let sx = sw * 0.74;
+    let sy = sh * 0.20;
+    for r in (0..7).rev() {
+        let rad = 30.0 + r as f32 * 30.0;
+        draw_circle(sx, sy, rad, Color::new(1.0, 0.94, 0.78, 0.06));
+    }
+    draw_circle(sx, sy, 30.0, Color::new(1.0, 0.98, 0.9, 0.95));
 }
 
 // ============================================================ main
@@ -2115,6 +2340,7 @@ async fn main() {
                     fovy: 1.15,
                     ..Default::default()
                 };
+                draw_sky();
                 set_camera(&cam);
                 game.draw_world_3d(t);
                 // the bus
@@ -2158,6 +2384,8 @@ async fn main() {
                     game.player.pos.y = ground;
                     game.player.vel = Vec3::ZERO;
                     game.phase = Phase::Playing;
+                    game.cam.add_trauma(0.25);
+                    game.burst(vec3(game.player.pos.x, ground + 0.1, game.player.pos.z), Color::new(0.72, 0.66, 0.55, 1.0), 16, 5.0, 0.7, 0.13, 10.0, 0.6);
                     game.notify("Good luck!");
                 }
 
@@ -2165,6 +2393,7 @@ async fn main() {
                 game.update_bots(dt, t);
                 game.cam.update(dt, game.player.pos, &game.static_colliders(), 1.15);
 
+                draw_sky();
                 set_camera(&game.cam.camera3d());
                 game.draw_world_3d(t);
                 draw_character(game.player.pos, game.player.body_yaw, Color::from_rgba(47, 159, 224, 255), 0.0, None, 0.0, false);
@@ -2192,7 +2421,8 @@ async fn main() {
                 let w_cfg = game.player.weapon().cfg();
                 let aiming = is_mouse_button_down(MouseButton::Right) && !game.build_mode && !w_cfg.melee;
                 game.cam.aiming = aiming;
-                let target_fov = 1.15 * if aiming { w_cfg.ads_zoom } else { 1.0 };
+                let sprinting = is_key_down(KeyCode::LeftShift) && is_key_down(KeyCode::W) && !aiming && !game.build_mode;
+                let target_fov = 1.15 * if aiming { w_cfg.ads_zoom } else if sprinting { 1.09 } else { 1.0 };
 
                 if game.build_mode {
                     game.update_build_mode();
@@ -2218,6 +2448,7 @@ async fn main() {
                 let spread_target = if aiming { 3.0 } else if moving { 14.0 } else { 8.0 };
                 game.cross_spread = lerpf(game.cross_spread, spread_target, damp(10.0, dt));
 
+                draw_sky();
                 set_camera(&game.cam.camera3d());
                 game.draw_world_3d(t);
                 let scope = aiming && w_cfg.scope;
@@ -2270,12 +2501,25 @@ async fn main() {
         game.tracers.retain(|x| x.life > 0.0);
         for im in game.impacts.iter_mut() { im.life -= dt; }
         game.impacts.retain(|x| x.life > 0.0);
+        for p in game.particles.iter_mut() {
+            p.vel.y -= p.gravity * dt;
+            p.vel *= 1.0 - damp(2.0, dt); // mild air drag
+            p.pos += p.vel * dt;
+            p.life -= dt;
+        }
+        game.particles.retain(|x| x.life > 0.0);
         for dn in game.dmg_nums.iter_mut() { dn.life -= dt; }
         game.dmg_nums.retain(|x| x.life > 0.0);
+        for d in game.dmg_dirs.iter_mut() { d.life -= dt; }
+        game.dmg_dirs.retain(|x| x.life > 0.0);
         for f in game.feed.iter_mut() { f.life -= dt; }
         game.feed.retain(|x| x.life > 0.0);
         game.notify.1 -= dt;
         game.hitmarker -= dt;
+        game.muzzle_flash = (game.muzzle_flash - dt * 14.0).max(0.0);
+        game.hit_flash = (game.hit_flash - dt * 4.0).max(0.0);
+        game.elim_flash = (game.elim_flash - dt * 2.0).max(0.0);
+        game.dmg_flash = (game.dmg_flash - dt * 2.5).max(0.0);
 
         next_frame().await;
     }
