@@ -70,8 +70,8 @@ This is the fix for "you cannot see how bad it is":
 
 1. **Unit tests**: game logic (storm phases, damage math, bot state, loot,
    inventory) lives in plain GDScript classes free of node dependencies,
-   tested with **GUT** run headless in CI-style:
-   `godot --headless -s addons/gut/gut_cmdln.gd`.
+   tested with a small custom SceneTree test runner (no addon dependency):
+   `godot --headless -s tests/run_tests.gd`.
 2. **Visual verification**: headless Godot can run a scripted scene and
    capture viewport screenshots to PNG — rendered frames are inspectable
    without a browser or desktop control.
