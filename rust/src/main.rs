@@ -937,6 +937,50 @@ impl Cam {
     }
 }
 
+// ============================================================ input snapshot
+/// One frame of player intent, gathered from the OS once per frame in `main`.
+/// Keeping the raw device polling out of the update logic makes movement,
+/// building, and weapon handling pure and unit-testable (see `mod tests`).
+#[derive(Default, Clone, Copy)]
+struct Input {
+    move_x: f32,        // A = -1, D = +1
+    move_y: f32,        // S = -1, W = +1
+    sprint: bool,       // LeftShift held
+    jump: bool,         // Space pressed this frame (edge)
+    look: Vec2,         // mouse delta this frame
+    fire_down: bool,    // LMB held
+    fire_pressed: bool, // LMB pressed this frame (edge)
+    aim: bool,          // RMB held
+    alt_pressed: bool,  // RMB pressed this frame (edge) — cycle material in build
+    r: bool,            // R pressed (edge): reload in combat, rotate in build
+    q: bool,            // Q pressed (edge): toggle build mode
+    num: [bool; 5],     // number keys 1-5 (edge): weapon slots / build pieces
+    zxcv: [bool; 4],    // Z X C V (edge): build-piece shortcuts
+}
+
+/// Poll the OS for this frame's intent. Not called in tests (no GL context);
+/// tests build `Input` values directly.
+fn read_input() -> Input {
+    let mut i = Input::default();
+    if is_key_down(KeyCode::D) { i.move_x += 1.0; }
+    if is_key_down(KeyCode::A) { i.move_x -= 1.0; }
+    if is_key_down(KeyCode::W) { i.move_y += 1.0; }
+    if is_key_down(KeyCode::S) { i.move_y -= 1.0; }
+    i.sprint = is_key_down(KeyCode::LeftShift);
+    i.jump = is_key_pressed(KeyCode::Space);
+    i.fire_down = is_mouse_button_down(MouseButton::Left);
+    i.fire_pressed = is_mouse_button_pressed(MouseButton::Left);
+    i.aim = is_mouse_button_down(MouseButton::Right);
+    i.alt_pressed = is_mouse_button_pressed(MouseButton::Right);
+    i.r = is_key_pressed(KeyCode::R);
+    i.q = is_key_pressed(KeyCode::Q);
+    let nums = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5];
+    for (n, k) in nums.iter().enumerate() { i.num[n] = is_key_pressed(*k); }
+    let alt = [KeyCode::Z, KeyCode::X, KeyCode::C, KeyCode::V];
+    for (n, k) in alt.iter().enumerate() { i.zxcv[n] = is_key_pressed(*k); }
+    i
+}
+
 // ============================================================ game phases
 #[derive(PartialEq, Clone, Copy)]
 enum Phase {
@@ -1563,15 +1607,11 @@ impl Game {
     }
 
     // ============================================================ player tick
-    fn update_player(&mut self, dt: f32, t: f64) {
+    fn update_player(&mut self, dt: f32, t: f64, input: &Input) {
         let aiming = self.cam.aiming;
         // movement input
-        let mut mv = vec2(0.0, 0.0);
-        if is_key_down(KeyCode::W) { mv.y += 1.0; }
-        if is_key_down(KeyCode::S) { mv.y -= 1.0; }
-        if is_key_down(KeyCode::D) { mv.x += 1.0; }
-        if is_key_down(KeyCode::A) { mv.x -= 1.0; }
-        let sprinting = is_key_down(KeyCode::LeftShift) && mv.y > 0.0 && !aiming;
+        let mv = vec2(input.move_x, input.move_y);
+        let sprinting = input.sprint && mv.y > 0.0 && !aiming;
 
         let fwd = self.cam.forward_flat();
         let right = self.cam.right_flat();
@@ -1587,7 +1627,7 @@ impl Game {
             self.player.vel.z *= k;
         }
 
-        if is_key_pressed(KeyCode::Space) && self.player.grounded {
+        if input.jump && self.player.grounded {
             self.player.vel.y = 8.5;
             self.player.grounded = false;
         }
@@ -1656,7 +1696,7 @@ impl Game {
 
         // body yaw: face camera when aiming/firing, else movement
         let moving = wish.length_squared() > 0.0;
-        let target_yaw = if aiming || is_mouse_button_down(MouseButton::Left) || !moving {
+        let target_yaw = if aiming || input.fire_down || !moving {
             self.cam.yaw
         } else {
             self.player.vel.x.atan2(self.player.vel.z)
@@ -1665,16 +1705,19 @@ impl Game {
         self.player.body_yaw += dy * damp(14.0, dt);
         self.player.walk_phase += dt * vec2(self.player.vel.x, self.player.vel.z).length() * 1.6;
 
-        // weapon switching
-        let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5];
-        for (i, k) in keys.iter().enumerate() {
-            if is_key_pressed(*k) && self.player.slots[i].is_some() {
-                self.player.weapon_mut().reloading = false;
-                self.player.slot = i;
+        // weapon switching & reload — only in combat; build mode reuses these
+        // keys (1-4 = piece, R = rotate), so routing them here too would fire
+        // both actions on one press.
+        if !self.build_mode {
+            for i in 0..5 {
+                if input.num[i] && self.player.slots[i].is_some() {
+                    self.player.weapon_mut().reloading = false;
+                    self.player.slot = i;
+                }
             }
-        }
-        if is_key_pressed(KeyCode::R) {
-            self.player.weapon_mut().start_reload(t);
+            if input.r {
+                self.player.weapon_mut().start_reload(t);
+            }
         }
         for s in self.player.slots.iter_mut().flatten() {
             s.update(t);
@@ -1712,20 +1755,20 @@ impl Game {
         (b, valid)
     }
 
-    fn update_build_mode(&mut self) {
-        if is_key_pressed(KeyCode::Key1) || is_key_pressed(KeyCode::Z) { self.piece_idx = 0; }
-        if is_key_pressed(KeyCode::Key2) || is_key_pressed(KeyCode::X) { self.piece_idx = 1; }
-        if is_key_pressed(KeyCode::Key3) || is_key_pressed(KeyCode::C) { self.piece_idx = 2; }
-        if is_key_pressed(KeyCode::Key4) || is_key_pressed(KeyCode::V) { self.piece_idx = 3; }
-        if is_key_pressed(KeyCode::R) { self.build_rot = (self.build_rot + 1) % 4; }
-        if is_mouse_button_pressed(MouseButton::Right) { self.mat_idx = (self.mat_idx + 1) % 3; }
+    fn update_build_mode(&mut self, input: &Input) {
+        if input.num[0] || input.zxcv[0] { self.piece_idx = 0; }
+        if input.num[1] || input.zxcv[1] { self.piece_idx = 1; }
+        if input.num[2] || input.zxcv[2] { self.piece_idx = 2; }
+        if input.num[3] || input.zxcv[3] { self.piece_idx = 3; }
+        if input.r { self.build_rot = (self.build_rot + 1) % 4; }
+        if input.alt_pressed { self.mat_idx = (self.mat_idx + 1) % 3; }
 
-        if is_mouse_button_down(MouseButton::Left) {
+        if input.fire_down {
             let (b, valid) = self.build_preview();
             if valid && self.player.mats[self.mat_idx] >= MAT_COST {
                 self.player.mats[self.mat_idx] -= MAT_COST;
                 self.builds.push(b);
-            } else if is_mouse_button_pressed(MouseButton::Left) && self.player.mats[self.mat_idx] < MAT_COST {
+            } else if input.fire_pressed && self.player.mats[self.mat_idx] < MAT_COST {
                 self.notify(format!("Not enough {}!", MAT_NAMES[self.mat_idx]));
             }
         }
@@ -2410,30 +2453,31 @@ async fn main() {
                 }
             }
             Phase::Playing => {
-                let d = game.cam.mouse_delta();
-                game.cam.look(d.x, d.y);
+                let mut input = read_input();
+                input.look = game.cam.mouse_delta();
+                game.cam.look(input.look.x, input.look.y);
 
                 // build mode toggle
-                if is_key_pressed(KeyCode::Q) {
+                if input.q {
                     game.build_mode = !game.build_mode;
                 }
 
                 let w_cfg = game.player.weapon().cfg();
-                let aiming = is_mouse_button_down(MouseButton::Right) && !game.build_mode && !w_cfg.melee;
+                let aiming = input.aim && !game.build_mode && !w_cfg.melee;
                 game.cam.aiming = aiming;
-                let sprinting = is_key_down(KeyCode::LeftShift) && is_key_down(KeyCode::W) && !aiming && !game.build_mode;
+                let sprinting = input.sprint && input.move_y > 0.0 && !aiming && !game.build_mode;
                 let target_fov = 1.15 * if aiming { w_cfg.ads_zoom } else if sprinting { 1.09 } else { 1.0 };
 
                 if game.build_mode {
-                    game.update_build_mode();
+                    game.update_build_mode(&input);
                 } else {
-                    let want_fire = if w_cfg.auto { is_mouse_button_down(MouseButton::Left) } else { is_mouse_button_pressed(MouseButton::Left) };
+                    let want_fire = if w_cfg.auto { input.fire_down } else { input.fire_pressed };
                     if want_fire {
                         game.player_fire(t, aiming);
                     }
                 }
 
-                game.update_player(dt, t);
+                game.update_player(dt, t, &input);
                 game.update_bots(dt, t);
                 game.storm.update(dt);
                 if game.storm.outside(game.player.pos) {
@@ -2460,7 +2504,7 @@ async fn main() {
                         game.player.walk_phase,
                         Some((game.player.weapon().t, game.player.weapon().rarity)),
                         game.cam.pitch,
-                        aiming || is_mouse_button_down(MouseButton::Left),
+                        aiming || input.fire_down,
                     );
                 }
                 // build preview ghost
@@ -2719,5 +2763,99 @@ mod tests {
         assert!(ray_aabb(vec3(0.0, 1.68, -5.0), inv, &bot_head).is_some());
         let bot_body = Aabb::new(vec3(0.0, 0.95, 0.0), vec3(0.45, 0.95, 0.45));
         assert!(ray_aabb(vec3(0.0, 0.9, -5.0), inv, &bot_body).is_some());
+    }
+
+    // ---------------------------------------------------------- controls
+    fn game_with_two_guns() -> Game {
+        let mut g = Game::new();
+        g.player.slots[1] = Some(Weapon::new(WType::Ar, 0));
+        g.player.slots[2] = Some(Weapon::new(WType::Smg, 0));
+        g.player.slot = 1; // AR equipped
+        g
+    }
+
+    #[test]
+    fn build_mode_number_key_selects_piece_not_weapon() {
+        let mut g = game_with_two_guns();
+        g.build_mode = true;
+        let mut input = Input::default();
+        input.num[2] = true; // "3": pick build piece, must NOT switch to weapon slot 2
+        g.update_build_mode(&input);
+        g.update_player(0.016, 1.0, &input);
+        assert_eq!(g.piece_idx, 2, "number key should select build piece");
+        assert_eq!(g.player.slot, 1, "number keys must not switch weapon while building");
+    }
+
+    #[test]
+    fn build_mode_r_rotates_without_reloading() {
+        let mut g = game_with_two_guns();
+        g.build_mode = true;
+        g.player.weapon_mut().ammo = 0; // an empty mag *could* reload — it must not, mid-build
+        let rot0 = g.build_rot;
+        let mut input = Input::default();
+        input.r = true;
+        g.update_build_mode(&input);
+        g.update_player(0.016, 1.0, &input);
+        assert_ne!(g.build_rot, rot0, "R should rotate the build piece");
+        assert!(!g.player.weapon().reloading, "R must not reload while building");
+    }
+
+    #[test]
+    fn combat_number_key_switches_weapon() {
+        let mut g = game_with_two_guns();
+        g.build_mode = false;
+        let mut input = Input::default();
+        input.num[2] = true;
+        g.update_player(0.016, 1.0, &input);
+        assert_eq!(g.player.slot, 2, "number key switches weapon in combat");
+    }
+
+    #[test]
+    fn combat_r_reloads() {
+        let mut g = game_with_two_guns();
+        g.build_mode = false;
+        g.player.weapon_mut().ammo = 0;
+        let mut input = Input::default();
+        input.r = true;
+        g.update_player(0.016, 1.0, &input);
+        assert!(g.player.weapon().reloading, "R reloads in combat");
+    }
+
+    #[test]
+    fn forward_moves_along_camera_facing() {
+        let mut g = Game::new();
+        g.cam.yaw = 0.0; // forward_flat = +z
+        g.player.grounded = true;
+        let mut input = Input::default();
+        input.move_y = 1.0; // W
+        g.update_player(0.016, 1.0, &input);
+        assert!(g.player.vel.z > 1.0, "W moves along camera forward (+z): {:?}", g.player.vel);
+        assert!(g.player.vel.x.abs() < 0.5, "no lateral drift: {:?}", g.player.vel);
+    }
+
+    #[test]
+    fn strafe_moves_along_camera_right() {
+        let mut g = Game::new();
+        g.cam.yaw = 0.0; // right_flat = +x
+        g.player.grounded = true;
+        let mut input = Input::default();
+        input.move_x = 1.0; // D
+        g.update_player(0.016, 1.0, &input);
+        assert!(g.player.vel.x > 1.0, "D strafes right (+x): {:?}", g.player.vel);
+    }
+
+    #[test]
+    fn jump_only_launches_when_grounded() {
+        let mut g = Game::new();
+        g.player.pos = vec3(0.0, terrain_height(0.0, 0.0), 0.0);
+        g.player.grounded = true;
+        let mut input = Input::default();
+        input.jump = true;
+        g.update_player(0.016, 1.0, &input);
+        assert!(g.player.vel.y > 0.0, "jump launches upward when grounded");
+        assert!(!g.player.grounded, "airborne after jump");
+        let vy = g.player.vel.y;
+        g.update_player(0.016, 1.0, &input); // still holding jump, now airborne
+        assert!(g.player.vel.y < vy, "no double-jump: only gravity applies mid-air");
     }
 }
