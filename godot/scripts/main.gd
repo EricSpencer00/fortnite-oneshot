@@ -4,6 +4,7 @@ var _menu: Control
 var _end: Control
 var _end_title: Label
 var _end_sub: Label
+var _drop_in_btn: Button
 
 func _ready() -> void:
 	_menu = _panel()
@@ -17,6 +18,7 @@ func _ready() -> void:
 	btn.text = "  DROP IN  "
 	btn.add_theme_font_size_override("font_size", 30)
 	btn.pressed.connect(_start)
+	_drop_in_btn = btn
 	for n in [title, sub, btn]:
 		_box_of(_menu).add_child(n)
 
@@ -37,6 +39,8 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if "--screenshot" in OS.get_cmdline_user_args():
 		_screenshot_run()
+	if "--click-test" in OS.get_cmdline_user_args():
+		_click_test_run()
 
 ## Automated visual check: capture menu + in-match frames, then quit.
 func _screenshot_run() -> void:
@@ -56,6 +60,42 @@ func _screenshot_run() -> void:
 	_save_shot("/tmp/shot_nostorm.png")
 	$Storm._wall.visible = true
 	get_tree().quit(0)
+
+## Automated input-pipeline check: synthesize a real mouse click on the
+## DROP IN button via push_input and verify the match actually starts.
+func _click_test_run() -> void:
+	for i in 10: await get_tree().process_frame
+	var rect: Rect2 = _drop_in_btn.get_global_rect()
+	var pos: Vector2 = rect.get_center()
+
+	var motion := InputEventMouseMotion.new()
+	motion.position = pos
+	motion.global_position = pos
+	get_viewport().push_input(motion)
+
+	var down := InputEventMouseButton.new()
+	down.position = pos
+	down.global_position = pos
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	get_viewport().push_input(down)
+
+	var up := InputEventMouseButton.new()
+	up.position = pos
+	up.global_position = pos
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	get_viewport().push_input(up)
+
+	for i in 10: await get_tree().process_frame
+	print("CLICK-TEST: state=", GameFlow.state)
+	_save_shot("/tmp/shot_clicktest.png")
+	if GameFlow.state != GameFlow.State.MENU:
+		print("CLICK-TEST: PASS")
+		get_tree().quit(0)
+	else:
+		print("CLICK-TEST: FAIL")
+		get_tree().quit(1)
 
 func _save_shot(path: String) -> void:
 	var img := get_viewport().get_texture().get_image()
