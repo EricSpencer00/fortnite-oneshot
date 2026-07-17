@@ -2,9 +2,9 @@
 
 A browser battle-royale game, now built with **Godot 4** and exported to WebAssembly.
 
-**Play the Godot build:** [https://ericspencer00.github.io/fortnite-oneshot/docs/play/](https://ericspencer00.github.io/fortnite-oneshot/docs/play/)
+**Play the Godot build:** [https://ericspencer.us/fortnite-oneshot/docs/play/](https://ericspencer.us/fortnite-oneshot/docs/play/)
 
-**Legacy Rust/macroquad build:** [https://ericspencer00.github.io/fortnite-oneshot/](https://ericspencer00.github.io/fortnite-oneshot/) (kept at the repo root)
+**Legacy Rust/macroquad build:** [https://ericspencer.us/fortnite-oneshot/](https://ericspencer.us/fortnite-oneshot/) (kept at the repo root)
 
 ## Features (Godot build — core loop)
 - Skydive + glide drop onto a procedurally generated island
