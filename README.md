@@ -1,18 +1,33 @@
 # Oneshot Royale
 
-A battle-royale game compiled to **WebAssembly** — Rust + [macroquad](https://macroquad.rs), running entirely in the browser. No server, no bundler: one 512 KB `game.wasm`, a JS loader, and an `index.html`.
+A browser battle-royale game, now built with **Godot 4** and exported to WebAssembly.
 
-Play it: [https://ericspencer00.github.io/fortnite-oneshot/](https://ericspencer00.github.io/fortnite-oneshot/)
+**Play the Godot build:** [https://ericspencer00.github.io/fortnite-oneshot/docs/play/](https://ericspencer00.github.io/fortnite-oneshot/docs/play/)
 
-## Features
-- Battle bus, skydive + glider drop
-- Hitscan weapons with rarity tiers, ADS zoom (sniper scope), recoil, spread, reloads, headshots
-- Building: wall / floor / ramp / roof in wood / stone / metal, destructible
-- Harvesting trees, rocks and cars with the pickaxe
-- Chests, floor loot, shield potions, medkits, ammo
-- Shrinking storm with phased circles, 23 AI opponents, kill feed, minimap, Victory Royale
+**Legacy Rust/macroquad build:** [https://ericspencer00.github.io/fortnite-oneshot/](https://ericspencer00.github.io/fortnite-oneshot/) (kept at the repo root)
 
-## Develop
+## Features (Godot build — core loop)
+- Skydive + glide drop onto a procedurally generated island
+- Third-person camera (spring-arm collision) with crosshair-true shooting
+- Hitscan weapons with rarity tiers, ADS zoom, spread, reloads, headshots
+- Floor loot + chests, 5-slot inventory
+- Shrinking storm with 6 phased circles, 20 AI opponents, Victory Royale
+
+Building (walls/ramps), the battle bus, and material harvesting are still exclusive to the legacy Rust build — Godot port pass 2.
+
+## Develop (Godot build)
+```bash
+# unit tests (headless, no window)
+godot --headless --path godot -s tests/run_tests.gd
+
+# visual verification: writes /tmp/shot_menu.png + /tmp/shot_play.png
+godot --path godot -- --screenshot
+
+# web export (non-threaded, GitHub Pages compatible)
+godot --headless --path godot --export-release Web ../docs/play/index.html
+```
+
+## Develop (legacy Rust build)
 ```bash
 cd rust
 cargo test                                            # logic tests (native)
@@ -21,4 +36,4 @@ cp target/wasm32-unknown-unknown/release/oneshot-royale.wasm ../game.wasm
 ```
 Serve the repo root with any static server (`python3 -m http.server`) and open it.
 
-Rewritten in Rust/WASM by Claude Fable 5.
+Built by Claude (Fable 5 / Opus 4.8).
