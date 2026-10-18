@@ -62,6 +62,15 @@ function tone(freq, dur, type = 'sine', vol = 0.2, slide = 0) {
   o.connect(g); g.connect(master); o.start(t); o.stop(t + dur);
 }
 
+function noiseHit(dur, freq, vol) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+  const g = ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random() * 0.3, dur + 0.05);
+}
+
 export const sfx = {
   hit: () => tone(1800, 0.06, 'square', 0.12),
   head: () => { tone(2600, 0.09, 'square', 0.14); tone(3400, 0.07, 'sine', 0.1); },
@@ -76,5 +85,14 @@ export const sfx = {
   click: () => tone(900, 0.03, 'square', 0.06),
   heal: () => tone(520, 0.3, 'sine', 0.12, 1.5),
   storm: () => tone(90, 0.8, 'sawtooth', 0.08, 0.7),
+  land: () => { if (!ctx) return; noiseHit(0.12, 400, 0.25); tone(90, 0.15, 'sine', 0.25, 0.5); },
+  jump: () => tone(300, 0.1, 'sine', 0.08, 1.8),
+  step: () => noiseHit(0.04, 900 + Math.random() * 400, 0.05),
+  glider: () => { tone(500, 0.25, 'triangle', 0.1, 0.6); noiseHit(0.3, 1500, 0.12); },
+  shieldBreak: () => { tone(1800, 0.25, 'triangle', 0.16, 0.4); noiseHit(0.2, 4000, 0.15); },
+  llama: () => { [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => tone(f, 0.2, 'square', 0.08), i * 60)); },
+  dropLand: () => { noiseHit(0.4, 300, 0.35); tone(70, 0.4, 'sine', 0.3, 0.6); },
+  xp: () => tone(1320, 0.07, 'sine', 0.06, 1.3),
+  emote: () => { [523, 659, 784, 659].forEach((f, i) => setTimeout(() => tone(f, 0.12, 'square', 0.05), i * 140)); },
   victory: () => { [523, 659, 784, 1047, 1319].forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.18), i * 120)); },
 };

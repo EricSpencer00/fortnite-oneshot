@@ -15,6 +15,10 @@ It's a static site. There's no install, no build step and no server. The first l
 - **Loot:** floor loot, chests, ammo types, and heals (bandages, med kits, shield potions). Eliminated players drop everything they had.
 - **Storm:** six phases that shrink, with damage that ramps up.
 - **Bots:** they drop, loot, open chests, rotate away from the storm, strafe, jump and build walls when they're shot. There are three difficulty levels.
+- **Characters:** animated robots ("RobotExpressive" by Tomás Laulhé / Quaternius, CC0) with run, jump and death animations. They aim their guns with procedural arm IK, and you can dance with **B**. Bots dance after they get an elimination.
+- **Fun stuff:** three loot llamas hidden on the island, supply drops that fall with a blue beam after storm phases 1 and 3, XP popups (eliminations, headshots, streaks, chests, survival), "DOUBLE ELIM!" banners, shield-break and elimination effects, and a victory dance with confetti and an orbiting camera.
+- **World:** grass that sways in the wind around you, swaying trees, water that's turquoise in the shallows and deep blue further out with lapping shoreline foam, and dirt plazas in the towns.
+- **Magic Mouse and trackpads:** one swipe moves one slot (or one build piece in build mode). Ctrl+click aims if right click is off, there's an optional toggle-to-aim mode, raw unaccelerated pointer-lock input, and an invert-scroll option.
 - **HUD:** minimap, full map (M), kill feed, damage numbers, hit markers, damage-direction arcs, a storm timer, and a hotbar using generated icons.
 
 ## Controls
@@ -27,6 +31,8 @@ It's a static site. There's no install, no build step and no server. The first l
 | 1 / 2–6 / wheel | Pickaxe / inventory slots / cycle |
 | Q / X / C | Build wall / floor / ramp (click to place) |
 | G / M / Esc | Change material / map / pause |
+| B | Emote (dance) |
+| Ctrl + click | Aim, for a Magic Mouse without right click |
 
 ## Tech
 - [three.js](https://threejs.org) r170, loaded from a CDN through an import map. Everything else is plain ES modules in `js/`.
@@ -57,6 +63,6 @@ Then open http://localhost:8000. ES modules need a server, so opening the file d
 
 To test from the dev console: `__osr.startMatch()` starts a match, and `__osr.sim(60)` fast-forwards the simulation by 60 s.
 
-QA suite (37 checks covering the drop, looting, chests, shooting, reloads, heals, building, harvesting, storm, scope, death, restart and full matches): open the game, then run `await import('./tests/qa.js')` in the console and read `window.__qa`.
+QA suite (58 checks covering the drop, looting, chests, shooting, reloads, heals, building, harvesting, storm, scope, death, restart, Magic Mouse input, emotes, llamas, supply drops, XP, the victory flow and full matches): open the game, then run `await import('./tests/qa.js')` in the console and read `window.__qa`.
 
 The earlier Rust/macroquad and Godot builds are still in git history.

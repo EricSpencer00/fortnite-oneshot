@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { HALF, WORLD_SIZE } from './config.js';
+import { HALF, WORLD_SIZE, POIS } from './config.js';
 
 // Deterministic value noise — the analytic height function is the single source
 // of truth for physics; the mesh is just a picture of it.
@@ -68,11 +68,13 @@ export function makeTerrainMaterial(tex) {
     shader.uniforms.tGrass = { value: tex.grass };
     shader.uniforms.tSand = { value: tex.sand };
     shader.uniforms.tRock = { value: tex.rock };
+    shader.uniforms.tDirt = { value: tex.dirt };
+    shader.uniforms.uPois = { value: POIS.map((p) => new THREE.Vector2(p.x, p.z)) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
       .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWPos = (modelMatrix * vec4(transformed,1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass;\nuniform sampler2D tSand;\nuniform sampler2D tRock;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
+      .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass;\nuniform sampler2D tSand;\nuniform sampler2D tRock;\nuniform sampler2D tDirt;\nuniform vec2 uPois[7];\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
       .replace('#include <map_fragment>', `
         vec2 uv1 = vWPos.xz * 0.11;
         vec2 uv2 = vWPos.xz * 0.023;
@@ -83,6 +85,10 @@ export function makeTerrainMaterial(tex) {
         float rockW = smoothstep(0.78, 0.62, vWNrm.y);
         vec3 col = mix(g, s, sandW);
         col = mix(col, rk, rockW);
+        // dirt town plazas with a ragged edge
+        float plaza = 0.0;
+        for (int i = 0; i < 7; i++) plaza = max(plaza, 1.0 - smoothstep(9.0, 15.0, distance(vWPos.xz, uPois[i]) + (texture2D(tGrass, vWPos.xz * 0.05).g - 0.5) * 8.0));
+        col = mix(col, texture2D(tDirt, uv1 * 0.9).rgb, plaza * (1.0 - rockW));
         col *= 0.92 + 0.16 * smoothstep(8.0, 26.0, vWPos.y);
         diffuseColor.rgb *= col;
       `);
@@ -104,6 +110,46 @@ export function buildTerrainMesh(tex, segments = 200) {
   return mesh;
 }
 
+// Height field baked once: feeds the grass/water shaders (as a texture) and the
+// minimap, so the analytic height function is evaluated N² times instead of 5N².
+export const HF = { size: 0, extent: WORLD_SIZE + 80, data: null, mask: null, texture: null };
+export function buildHeightField(size = 512, inHouse = null) {
+  const ext = HF.extent, data = new Float32Array(size * size);
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    data[j * size + i] = terrainHeight((i / (size - 1) - 0.5) * ext, (j / (size - 1) - 0.5) * ext);
+  }
+  const cell = ext / (size - 1);
+  const mask = new Float32Array(size * size);
+  const rgba = new Uint16Array(size * size * 4);
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const k = j * size + i, h = data[k];
+    const hx = data[j * size + Math.min(size - 1, i + 1)] - data[j * size + Math.max(0, i - 1)];
+    const hz = data[Math.min(size - 1, j + 1) * size + i] - data[Math.max(0, j - 1) * size + i];
+    const ny = 2 * cell / Math.hypot(hx, 2 * cell, hz);
+    let m = h > 2.6 && ny > 0.8 ? 1 : 0;
+    if (m) {
+      const x = (i / (size - 1) - 0.5) * ext, z = (j / (size - 1) - 0.5) * ext;
+      if (inHouse && inHouse(x, z, 0.5)) m = 0;
+      else for (const p of POIS) if (Math.hypot(x - p.x, z - p.z) < 13) { m = 0; break; }
+    }
+    mask[k] = m;
+    rgba[k * 4] = THREE.DataUtils.toHalfFloat(h);
+    rgba[k * 4 + 1] = THREE.DataUtils.toHalfFloat(m);
+    rgba[k * 4 + 2] = THREE.DataUtils.toHalfFloat(ny);
+    rgba[k * 4 + 3] = THREE.DataUtils.toHalfFloat(1);
+  }
+  const tex = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat, THREE.HalfFloatType);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  Object.assign(HF, { size, data, mask, texture: tex });
+  return HF;
+}
+function hfAt(x, z) {
+  const s = HF.size, ext = HF.extent;
+  const i = Math.round((x / ext + 0.5) * (s - 1)), j = Math.round((z / ext + 0.5) * (s - 1));
+  return HF.data[Math.max(0, Math.min(s - 1, j)) * s + Math.max(0, Math.min(s - 1, i))];
+}
+
 // Top-down picture of the island for the minimap / big map.
 export function renderMapImage(size = 512) {
   const c = document.createElement('canvas');
@@ -114,14 +160,17 @@ export function renderMapImage(size = 512) {
     for (let px = 0; px < size; px++) {
       const x = (px / size - 0.5) * WORLD_SIZE;
       const z = (py / size - 0.5) * WORLD_SIZE;
-      const h = terrainHeight(x, z);
+      const h = HF.data ? hfAt(x, z) : terrainHeight(x, z);
       let r, g, b;
       if (h < -0.2) { const t = Math.max(0, Math.min(1, -h / 2)); r = 60 - 20 * t; g = 160 - 40 * t; b = 215 - 20 * t; }
       else if (h < 2.2) { r = 236; g = 214; b = 150; }
       else {
         const t = Math.min(1, h / 30);
         r = 92 + 50 * t; g = 168 - 10 * t; b = 70 + 40 * t;
-        const n = terrainNormal(x, z);
+        const e = 1.2;
+        const dx = (HF.data ? hfAt(x + e, z) - hfAt(x - e, z) : terrainHeight(x + e, z) - terrainHeight(x - e, z));
+        const dz = (HF.data ? hfAt(x, z + e) - hfAt(x, z - e) : terrainHeight(x, z + e) - terrainHeight(x, z - e));
+        const n = { x: -dx, y: 2 * e, z: -dz }; const L = Math.hypot(n.x, n.y, n.z); n.x /= L; n.y /= L; n.z /= L;
         if (n.y < 0.72) { r = 140; g = 136; b = 128; }
         const shade = 0.82 + 0.3 * (n.x * -0.5 + n.z * -0.5 + 0.5);
         r *= shade; g *= shade; b *= shade;

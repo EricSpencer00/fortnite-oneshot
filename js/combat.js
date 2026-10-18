@@ -107,6 +107,7 @@ export function fireWeapon(shooter, origin, dir, muzzle, spread, verifyFrom = nu
       total += dealt; anyHit = true;
       if (!hit.actor.alive) killed = true;
       burst(tmpEnd, wasShield ? 0x5ac8ff : 0xff4d4d, 5, 3, 0.35, 1);
+      if (wasShield && hit.actor.shield <= 0 && G.onShieldBreak) G.onShieldBreak(hit.actor, shooter);
       if (shooter.isPlayer && G.onHitConfirm) G.onHitConfirm(tmpEnd, Math.round(dealt), hit.head, wasShield);
     } else if (hit.type === 'collider') {
       if (hit.collider.kind === 'build') damageBuild(hit.collider.ref, w.damage * mult * 0.9, shooter);

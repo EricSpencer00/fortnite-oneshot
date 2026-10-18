@@ -141,8 +141,9 @@ export function seedChests() {
 }
 
 export function openChest(c, by) {
-  if (c.opened) return;
+  if (c.opened || c.locked) return;
   c.opened = true;
+  if (c.kind === 'llama' || c.kind === 'drop') return openSpecial(c);
   const fx = Math.sin(c.mesh.rotation.y), fz = Math.cos(c.mesh.rotation.y);
   const w = randomWeapon(0.12);
   const drop = (item) => spawnLoot(item, c.x + fx * 0.9, c.y + 0.6, c.z + fz * 0.9, true);
@@ -153,9 +154,29 @@ export function openChest(c, by) {
   burst(new THREE.Vector3(c.x, c.y + 1, c.z), 0xffd700, 24, 5, 0.8);
 }
 
+function openSpecial(c) {
+  const drop = (item) => spawnLoot(item, c.x + (Math.random() - 0.5) * 1.5, c.y + 1, c.z + (Math.random() - 0.5) * 1.5, true);
+  if (c.kind === 'llama') {
+    c.mesh.visible = false;
+    drop(randomWeapon(0.2)); drop(randomWeapon(0.2));
+    drop(randomHeal()); drop(randomHeal()); drop({ kind: 'heal', type: 'shield', count: 2 });
+    for (const t of ['light', 'medium', 'heavy', 'shells']) drop({ kind: 'ammo', type: t, count: AMMO_GIVE[t] * 2 });
+    for (const m of MATS) drop({ kind: 'mat', type: m, count: 100 });
+    burst(new THREE.Vector3(c.x, c.y + 1.5, c.z), 0xb35cf0, 40, 9, 1.0, 4);
+    burst(new THREE.Vector3(c.x, c.y + 1.5, c.z), 0xffd23f, 20, 7, 0.8, 4);
+  } else {
+    const a = randomWeapon(0.42), b = randomWeapon(0.42);
+    drop(a); drop(b);
+    drop({ kind: 'ammo', type: WEAPONS[a.type].ammo, count: AMMO_GIVE[WEAPONS[a.type].ammo] * 2 });
+    drop({ kind: 'heal', type: 'shield', count: 2 });
+    drop({ kind: 'mat', type: 'metal', count: 60 });
+    burst(new THREE.Vector3(c.x, c.y + 1.2, c.z), 0x55aaff, 30, 7, 0.9, 4);
+  }
+}
+
 export function updateChests(dt, time) {
   for (const c of G.chests) {
-    if (c.opened && c.openT < 1) { c.openT = Math.min(1, c.openT + dt * 3); c.lid.rotation.x = -c.openT * 1.9; }
+    if (c.lid && c.opened && c.openT < 1) { c.openT = Math.min(1, c.openT + dt * 3); c.lid.rotation.x = -c.openT * 1.9; }
   }
   // pulse glow
   if (chestMats) chestMats[4].emissiveIntensity = chestMats[0].emissiveIntensity = 0.35 + Math.sin(time * 4) * 0.2;
@@ -164,7 +185,7 @@ export function updateChests(dt, time) {
 export function nearestChest(pos, maxD) {
   let best = null, bd = maxD * maxD;
   for (const c of G.chests) {
-    if (c.opened) continue;
+    if (c.opened || c.locked) continue;
     const dx = c.x - pos.x, dy = c.y - pos.y, dz = c.z - pos.z;
     const d = dx * dx + dz * dz + dy * dy;
     if (d < bd) { bd = d; best = c; }

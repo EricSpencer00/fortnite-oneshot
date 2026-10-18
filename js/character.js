@@ -2,6 +2,7 @@
 // memory low; per-skin materials are cached.
 import * as THREE from 'three';
 import { RARITY_HEX } from './config.js';
+import { robotReady, makeRobot, animateRobot, setRobotWeapon } from './robot.js';
 
 const G = {
   torso: new THREE.BoxGeometry(0.62, 0.7, 0.36),
@@ -46,6 +47,7 @@ function part(geo, mat, parent, x, y, z) {
 }
 
 export function makeCharacter(skin) {
+  if (robotReady()) return makeRobot(skin);
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
   const sm = lam(skin.shirt), pm = lam(skin.pants), km = lam(skin.skin), hm = lam(skin.hair);
@@ -127,6 +129,7 @@ export function makeWeaponModel(type, rarity = 0) {
 
 export function setHeld(ch, key, type, rarity) {
   if (ch.weaponKey === key) return;
+  if (ch.robot) { ch.weaponKey = key; setRobotWeapon(ch, type ? makeWeaponModel(type, rarity) : null); return; }
   if (ch.weapon) ch.hand.remove(ch.weapon);
   ch.weapon = type ? makeWeaponModel(type, rarity) : null;
   if (ch.weapon) {
@@ -139,6 +142,7 @@ export function setHeld(ch, key, type, rarity) {
 
 // pose: speed (m/s), onGround, pitch, mode ('ground'|'sky'|'glide'|'bus'), aiming, firing kick, swing (melee 0..1)
 export function animateCharacter(ch, dt, s) {
+  if (ch.robot) return animateRobot(ch, dt, s);
   const run = Math.min(1, s.speed / 7);
   if (s.onGround) ch.phase += dt * (4 + s.speed * 1.4);
   const ph = ch.phase;

@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { BOT_COUNT, BOT_NAMES, PLAYER, WEAPONS, MATS, HALF } from './config.js';
 import { G } from './state.js';
-import { buildTerrainMesh, renderMapImage, terrainHeight } from './terrain.js';
+import { buildTerrainMesh, renderMapImage, terrainHeight, buildHeightField } from './terrain.js';
+import { makeGrass, makeWater, addSway, initEnv, updateEnv } from './env.js';
 import { buildWorld, restoreNodes } from './world.js';
 import { moveActor, rayWorld } from './physics.js';
 import { Actor } from './actor.js';
 import { Bot } from './bot.js';
 import { SKINS } from './character.js';
+import { loadRobot } from './robot.js';
+import { xp, seedLlamas, spawnSupplyDrop, updateSpecials, updateConfetti, landingPuff, shieldBreakFx, bodyGoneFx, contrail } from './fun.js';
 import { fireWeapon } from './combat.js';
 import { initFx, updateFx, clearFx } from './fx.js';
 import { initAudio, sfx, setVolume } from './audio.js';
@@ -44,7 +47,7 @@ sun.shadow.camera.near = 10; sun.shadow.camera.far = 320;
 sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.6;
 scene.add(sun, sun.target);
 
-let dpr = 1, quality = 'medium';
+let dpr = 1, quality = 'medium', grassMesh = null;
 function applyQuality() {
   const q = G.settings.quality;
   const dev = Math.min(window.devicePixelRatio || 1, 2);
@@ -53,6 +56,7 @@ function applyQuality() {
   renderer.setPixelRatio(dpr);
   const sh = quality !== 'low';
   renderer.shadowMap.enabled = sh; sun.castShadow = sh;
+  if (grassMesh) grassMesh.visible = quality !== 'low';
   const ms = quality === 'high' ? 2048 : 1024;
   if (sun.shadow.mapSize.x !== ms) { sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   scene.traverse((o) => { if (o.material) { const ms2 = Array.isArray(o.material) ? o.material : [o.material]; ms2.forEach((m) => { m.needsUpdate = true; }); } });
@@ -116,9 +120,17 @@ function makeMats(tex) {
 }
 
 // ------------------------------------------------------------------ input
-function lockPointer() { try { const r = canvas.requestPointerLock?.(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not allowed here */ } }
+// Raw (unaccelerated) mouse input where supported — big win for Magic Mouse /
+// trackpads whose OS acceleration makes aim inconsistent.
+function lockPointer() {
+  const opts = G.settings.rawInput !== false ? { unadjustedMovement: true } : undefined;
+  try {
+    const r = canvas.requestPointerLock?.(opts);
+    if (r && r.catch) r.catch(() => { try { const r2 = canvas.requestPointerLock?.(); if (r2 && r2.catch) r2.catch(() => {}); } catch (e) { /* ignore */ } });
+  } catch (e) { /* not allowed here */ }
+}
 const keys = new Set();
-const mouse = { l: false, r: false, dx: 0, dy: 0, lPressed: false, wheel: 0 };
+const mouse = { l: false, r: false, dx: 0, dy: 0, lPressed: false, wheel: 0, ctrlAim: false };
 let locked = false;
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -128,16 +140,48 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); mouse.l = mouse.r = false; });
+function setAim(down) {
+  if (G.settings.aimToggle) { if (down) mouse.r = !mouse.r; }
+  else mouse.r = down;
+}
 canvas.addEventListener('mousedown', (e) => {
   if (G.phase === 'menu' || G.phase === 'end') return;
   if (!locked) { lockPointer(); return; }
+  // Magic Mouse without "Secondary click" enabled: Ctrl+click acts as right click
+  if (e.button === 0 && e.ctrlKey) { mouse.ctrlAim = true; setAim(true); return; }
   if (e.button === 0) { mouse.l = true; mouse.lPressed = true; }
-  if (e.button === 2) mouse.r = true;
+  if (e.button === 2) setAim(true);
 });
-addEventListener('mouseup', (e) => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
+addEventListener('mouseup', (e) => {
+  if (e.button === 0 && mouse.ctrlAim) { mouse.ctrlAim = false; if (!G.settings.aimToggle) mouse.r = false; return; }
+  if (e.button === 0) mouse.l = false;
+  if (e.button === 2 && !G.settings.aimToggle) mouse.r = false;
+});
 addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('mousemove', (e) => { if (locked) { mouse.dx += e.movementX; mouse.dy += e.movementY; } });
-addEventListener('wheel', (e) => { if (locked) mouse.wheel += Math.sign(e.deltaY); }, { passive: true });
+// Wheel: Magic Mouse / trackpads send a stream of tiny momentum deltas, notched
+// wheels send one big delta per click. Accumulate and switch at most one slot per
+// "notch" with a short cooldown so one swipe = one slot, not ten.
+const wheelState = { acc: 0, lastEvt: 0, lastStep: 0, spent: false };
+addEventListener('wheel', (e) => {
+  if (!locked) return;
+  const now = performance.now();
+  let d = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  if (G.settings.invertScroll) d = -d;
+  // line/page deltas (Firefox wheels) or big pixel jumps (Chrome/Windows wheels) = a physical notch
+  const notch = e.deltaMode !== 0 || Math.abs(d) >= 100;
+  if (notch) {
+    // classic wheel: every click is a step
+    if (now - wheelState.lastStep > 40) { mouse.wheel += Math.sign(d); wheelState.lastStep = now; }
+    return;
+  }
+  // touch surface: a gesture (incl. its momentum tail) is a run of events with <160 ms gaps.
+  if (now - wheelState.lastEvt > 160) { wheelState.acc = 0; wheelState.spent = false; }
+  wheelState.lastEvt = now;
+  if (wheelState.spent) return; // one slot per swipe
+  wheelState.acc += d;
+  if (Math.abs(wheelState.acc) >= 45) { mouse.wheel += Math.sign(wheelState.acc); wheelState.spent = true; wheelState.lastStep = now; }
+}, { passive: true });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
   if (!locked && (G.phase === 'play' || G.phase === 'bus')) pause(true);
@@ -146,7 +190,7 @@ document.addEventListener('pointerlockchange', () => {
 // ------------------------------------------------------------------ player view state
 const view = { building: null, prompt: null, progress: null, spread: 0, scoped: false, inStorm: false, camYaw: 0, hideCross: false };
 const cam = { yaw: 0, pitch: -0.1, dist: 4, fov: G.settings.fov, shake: 0 };
-let bloom = 0, lastPlaced = '', mapOpen = false, buildCd = 0;
+let bloom = 0, lastPlaced = '', mapOpen = false, buildCd = 0, stepAcc = 0, lastKillT = -99, combo = 0;
 
 function onKey(code) {
   if (code === 'Escape' && G.phase === 'paused') { /* browser handles unlock */ }
@@ -165,6 +209,7 @@ function onKey(code) {
   if (code === 'KeyG') { p.matSel = (p.matSel + 1) % 3; sfx.click(); }
   if (code === 'KeyR') { if (p.startReload()) sfx.reload(); }
   if (code === 'KeyE') interact(p);
+  if (code === 'KeyB' && p.mode === 'ground') { p.emote = !p.emote; if (p.emote) { view.building = null; sfx.emote(); } }
 }
 function toggleBuild(piece) {
   if (G.player.mode !== 'ground') return;
@@ -175,7 +220,13 @@ function toggleBuild(piece) {
 
 function interact(p) {
   const c = nearestChest(p.pos, 2.8);
-  if (c) { openChest(c, p); sfx.chest(); return; }
+  if (c) {
+    openChest(c, p);
+    if (c.kind === 'llama') { sfx.llama(); xp('Loot Llama', 50); }
+    else if (c.kind === 'drop') { sfx.chest(); xp('Supply Drop', 30); }
+    else { sfx.chest(); xp('Chest', 10); }
+    return;
+  }
   const l = nearestLoot(p.pos, 2.6, (l) => l.settled);
   if (!l) return;
   pickup(p, l);
@@ -214,10 +265,18 @@ function updatePlayer(dt) {
   mouse.dx = mouse.dy = 0;
   cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch));
   if (mouse.wheel && p.alive && p.mode === 'ground') {
-    const order = [-1, 0, 1, 2, 3, 4];
-    let i = order.indexOf(p.active);
-    i = (i + (mouse.wheel > 0 ? 1 : -1) + 6) % 6;
-    view.building = null; p.equip(order[i]);
+    if (view.building) {
+      // in build mode the wheel cycles pieces instead of leaving build mode
+      const pieces = ['wall', 'floor', 'ramp'];
+      view.building = pieces[(pieces.indexOf(view.building) + (mouse.wheel > 0 ? 1 : 2)) % 3];
+      lastPlaced = '';
+    } else {
+      const order = [-1, 0, 1, 2, 3, 4];
+      let i = order.indexOf(p.active);
+      i = (i + (mouse.wheel > 0 ? 1 : -1) + 6) % 6;
+      p.equip(order[i]);
+    }
+    sfx.click();
   }
   mouse.wheel = 0;
   view.prompt = null; view.progress = null;
@@ -239,8 +298,9 @@ function updatePlayer(dt) {
   if (p.mode === 'sky' || p.mode === 'glide') {
     const gy = terrainHeight(p.pos.x, p.pos.z);
     const above = p.pos.y - gy;
-    if (p.mode === 'sky' && (above < 34 || (keys.has('Space') && above < 100 && p.skyT > 0.6))) { p.mode = 'glide'; sfx.click(); }
+    if (p.mode === 'sky' && (above < 34 || (keys.has('Space') && above < 100 && p.skyT > 0.6))) { p.mode = 'glide'; sfx.glider(); }
     p.skyT = (p.skyT || 0) + dt;
+    if (p.mode === 'sky') contrail(tmp2.set(p.pos.x, p.pos.y + 1, p.pos.z));
     const hs = p.mode === 'sky' ? 20 : 15;
     p.vel.x += (tmp.x * hs - p.vel.x) * Math.min(1, dt * 2.5);
     p.vel.z += (tmp.z * hs - p.vel.z) * Math.min(1, dt * 2.5);
@@ -249,7 +309,7 @@ function updatePlayer(dt) {
     p.noGravity = true;
     p.yaw = cam.yaw; p.pitch = 0;
     moveActor(p, dt, PLAYER.radius, PLAYER.height);
-    if (p.onGround) { p.mode = 'ground'; p.noGravity = false; p.vel.set(0, 0, 0); centerMsg('Find a weapon! <span style="color:#ffd23f">[E]</span> to pick up', 3); }
+    if (p.onGround) { p.mode = 'ground'; p.noGravity = false; p.vel.set(0, 0, 0); landingPuff(p.pos); sfx.land(); cam.shake = 0.35; xp('Landed', 10); centerMsg('Find a weapon! <span style="color:#ffd23f">[E]</span> to pick up', 3); }
     return;
   }
 
@@ -262,10 +322,18 @@ function updatePlayer(dt) {
   const accel = p.onGround ? 14 : 3;
   p.vel.x += (tmp.x * speed - p.vel.x) * Math.min(1, dt * accel);
   p.vel.z += (tmp.z * speed - p.vel.z) * Math.min(1, dt * accel);
-  if (keys.has('Space') && p.onGround) { p.vel.y = PLAYER.jump; p.onGround = false; }
+  if (keys.has('Space') && p.onGround) { p.vel.y = PLAYER.jump; p.onGround = false; sfx.jump(); }
   if (p.pos.y < 0.3) { p.vel.x *= 0.92; p.vel.z *= 0.92; } // wading
+  // any action cancels an emote
+  if (p.emote && (ix || iz || mouse.l || keys.has('Space') || mouse.r)) p.emote = false;
+  const wasAir = !p.onGround;
+  p.landSpeed = 0;
   moveActor(p, dt, PLAYER.radius, PLAYER.height);
-  p.yaw = cam.yaw; p.pitch = cam.pitch;
+  if (wasAir && p.onGround && p.landSpeed > 11) { landingPuff(p.pos); sfx.land(); cam.shake = Math.min(0.5, cam.shake + p.landSpeed * 0.02); }
+  if (!p.emote) { p.yaw = cam.yaw; p.pitch = cam.pitch; }
+  // footsteps
+  const hs = Math.hypot(p.vel.x, p.vel.z);
+  if (p.onGround && hs > 1) { stepAcc += hs * dt; if (stepAcc > 2.3) { stepAcc = 0; sfx.step(); } }
 
   // auto pickup ammo/mats
   for (const l of G.loot) {
@@ -276,7 +344,7 @@ function updatePlayer(dt) {
 
   // prompts
   const ch = nearestChest(p.pos, 2.8);
-  if (ch) view.prompt = { html: '<kbd>E</kbd>Open chest', color: '#ffd23f' };
+  if (ch) view.prompt = ch.kind === 'llama' ? { html: '<kbd>E</kbd>Smash Loot Llama', color: '#b35cf0' } : ch.kind === 'drop' ? { html: '<kbd>E</kbd>Open Supply Drop', color: '#55aaff' } : { html: '<kbd>E</kbd>Open chest', color: '#ffd23f' };
   else {
     const l = nearestLoot(p.pos, 2.6, (l) => l.settled);
     if (l) view.prompt = lootPrompt(l);
@@ -355,6 +423,12 @@ function updateCamera(dt) {
   if (p.mode === 'bus') { dist = 34; side = 0; up = 14; }
   else if (p.mode === 'sky' || p.mode === 'glide') { dist = 8; side = 0; up = 1.2; }
   else if (!p.alive) { dist = 7; side = 0; up = 1.5; }
+  else if (G.won && G.phase === 'end') {
+    // victory: slow orbit around the dancing champion
+    dist = 5.5; side = 0; up = 0.4; cam.yaw += dt * 0.45; cam.pitch += (-0.12 - cam.pitch) * Math.min(1, dt * 2);
+    p.yaw = cam.yaw + Math.PI;
+  }
+  else if (p.emote) { dist = 5; side = 0; up = 0.3; }
   else if (mouse.r && w && !w.melee && !view.building && p.reloadT <= 0) { dist = w.scope ? 0.5 : 1.7; side = w.scope ? 0 : 1.05; up = w.scope ? 0.35 : 0.2; targetFov = G.settings.fov * w.zoom; }
   if (keys.has('ShiftLeft') && p.mode === 'ground' && !mouse.r) targetFov += 6;
   cam.dist += (dist - cam.dist) * Math.min(1, dt * 12);
@@ -406,7 +480,9 @@ function startMatch() {
   G.settings.difficulty = diff; saveSettings();
   clearLoot(); clearBuilds(); clearFx(); clearFeed();
   restoreNodes(G.world);
-  seedChests(); seedFloorLoot();
+  seedChests(); seedFloorLoot(); seedLlamas(3);
+  G.stats.damage = 0; G.stats.xp = 0; G.won = false; combo = 0; lastKillT = -99;
+  const xf = $('xpfeed'); if (xf) xf.innerHTML = '';
   G.storm = newStorm();
   G.bus = newBusPath();
   G.time = 0; G.alive = BOT_COUNT + 1;
@@ -435,12 +511,16 @@ function endMatch(win, killer) {
   G.phase = 'end';
   if (document.pointerLockElement) document.exitPointerLock();
   const place = win ? 1 : G.alive + 1;
+  if (win) { G.won = true; p.emote = true; p.vel.set(0, 0, 0); xp('Victory Royale!', 300); centerMsg('<span style="color:#ffd23f;font-size:56px">#1 VICTORY ROYALE</span>', 3.5); }
+  else if (place <= 10) xp('Top 10', 60);
   $('end').classList.toggle('win', win);
   $('end-place').textContent = '#' + place;
   $('end-title').textContent = win ? 'VICTORY ROYALE' : place <= 5 ? 'SO CLOSE!' : 'ELIMINATED';
   $('end-sub').textContent = win ? 'You outlasted everyone on the island.' : killer ? `Eliminated by ${killer}` : 'The storm got you.';
-  $('end-stats').innerHTML = `<div><b>${p.kills}</b>Elims</div><div><b>${Math.round(G.stats.damage)}</b>Damage</div><div><b>${fmt(G.time)}</b>Survived</div>`;
-  setTimeout(() => { $('end').classList.remove('hidden'); if (win) sfx.victory(); }, win ? 600 : 1400);
+  $('end-stats').innerHTML = `<div><b>${p.kills}</b>Elims</div><div><b>${Math.round(G.stats.damage)}</b>Damage</div><div><b>${fmt(G.time)}</b>Survived</div><div class="xp"><b>${G.stats.xp}</b>XP earned</div>`;
+  if (win) sfx.victory();
+  // let the victory dance play before the results card
+  setTimeout(() => { if (G.phase === 'end') $('end').classList.remove('hidden'); }, win ? 4200 : 1600);
 }
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -451,7 +531,12 @@ G.onElim = (victim, attacker, opts) => {
   const how = opts && opts.storm ? 'was lost in the storm' : attacker ? `eliminated by <b>${attacker.name}</b>` : 'fell';
   const isYou = victim.isPlayer || (attacker && attacker.isPlayer);
   feed(`${victim.isPlayer ? 'You' : victim.name} ${how}${opts && opts.head ? ' (headshot)' : ''}`, isYou);
-  if (attacker && attacker.isPlayer && !victim.isPlayer) { elimMsg(victim.name); sfx.elim(); }
+  if (attacker && attacker.isPlayer && !victim.isPlayer) {
+    combo = G.time - lastKillT < 6 ? combo + 1 : 1; lastKillT = G.time;
+    elimMsg(victim.name + (combo > 1 ? ` <span class="combo">${['', '', 'DOUBLE', 'TRIPLE', 'QUAD'][Math.min(combo, 4)] || combo + 'x'} ELIM!</span>` : ''));
+    sfx.elim(); xp('Elimination', 50); if (opts && opts.head) xp('Headshot', 25); if (combo > 1) xp('Elim streak', 25 * combo);
+  }
+  if (attacker && !attacker.isPlayer && attacker.alive && Math.random() < 0.6) attacker.emoteT = 2.2;
   if (victim.isPlayer) { endMatch(false, attacker && attacker !== victim ? attacker.name : null); return; }
   if (G.alive <= 1 && G.player.alive) endMatch(true);
 };
@@ -462,9 +547,19 @@ G.onHitConfirm = (pos, dmg, head, shield) => {
   G.stats.damage += dmg;
 };
 G.onHarvest = () => {};
+G.onBodyGone = (a) => { if (a.pos.distanceTo(G.player.pos) < 150) bodyGoneFx(a); };
+G.onShieldBreak = (victim, shooter) => {
+  if (victim.pos.distanceTo(G.player.pos) > 120) return;
+  shieldBreakFx(victim.chest.clone());
+  if (shooter.isPlayer || victim.isPlayer) sfx.shieldBreak();
+};
 G.onStormEvent = (e) => {
   if (e === 'shrink') { centerMsg('<span style="color:#d6a8ff">The storm is closing in!</span>', 3); sfx.storm(); }
-  else centerMsg('Storm eye formed — get to the safe zone', 3);
+  else {
+    if (G.player.alive) xp('Storm survived', 20);
+    if (G.storm.phase === 1 || G.storm.phase === 3) { spawnSupplyDrop(); centerMsg('<span style="color:#7fc4ff">Supply drop incoming!</span> Look for the blue beam', 3.5); }
+    else centerMsg('Storm eye formed — get to the safe zone', 3);
+  }
 };
 
 function updateMatch(dt) {
@@ -531,11 +626,14 @@ function frame(now) {
   tick(dt, now);
 }
 function tick(dt, now) {
+  if (G.player) updateEnv(now / 1000, G.phase === 'menu' ? camera.position : G.player.pos);
   if (G.phase === 'play' || G.phase === 'bus' || G.phase === 'end') {
     if (G.phase !== 'end') updateMatch(dt);
     else { G.time += 0; for (const b of bots) b.update(dt, false); }
     updateLoot(dt, now / 1000);
     updateChests(dt, now / 1000);
+    updateSpecials(dt, now / 1000);
+    updateConfetti(dt, G.player.pos, G.won && G.phase === 'end');
     updateCamera(dt);
     syncStormVisual(G.storm, now / 1000);
     const px = G.player.pos.x, pz = G.player.pos.z;
@@ -579,16 +677,21 @@ async function boot() {
   const tex = await loadAssets();
   G.tex = tex;
   G.mats = makeMats(tex);
+  addSway(G.mats.leaves, 0.045, -2.3);
+  addSway(G.mats.bush, 0.04, -1);
   G.world = buildWorld(scene, tex, G.mats);
+  buildHeightField(512, G.world.inHouse);
   scene.add(buildTerrainMesh(tex));
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(5000, 5000), new THREE.MeshPhongMaterial({ color: 0x1f8fd6, specular: 0x9fd8ff, shininess: 80, transparent: true, opacity: 0.85 }));
-  water.rotation.x = -Math.PI / 2; water.position.y = 0;
-  scene.add(water);
+  makeWater(scene);
+  grassMesh = makeGrass(scene, quality === 'low' ? 'medium' : quality);
+  if (grassMesh) grassMesh.visible = quality !== 'low';
+  initEnv(sun.position);
   initFx(scene);
   initStormVisual(scene);
   busMesh = makeBusMesh(scene, G.mats);
   initHud(renderMapImage(512));
 
+  try { await loadRobot('assets/robot.glb'); } catch (e) { console.warn('robot model failed, using blocky characters', e); }
   G.player = makePlayer();
   G.actors.push(G.player);
   const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
@@ -621,6 +724,12 @@ $('quit').onclick = $('tomenu').onclick = () => {
   G.phase = 'menu'; showHud(false); showGhost(null);
   $('pause').classList.add('hidden'); $('end').classList.add('hidden'); $('menu').classList.remove('hidden');
 };
+$('aimmode').value = G.settings.aimToggle ? 'toggle' : 'hold';
+$('rawinput').checked = G.settings.rawInput !== false;
+$('invscroll').checked = !!G.settings.invertScroll;
+$('aimmode').onchange = (e) => { G.settings.aimToggle = e.target.value === 'toggle'; mouse.r = false; saveSettings(); };
+$('rawinput').onchange = (e) => { G.settings.rawInput = e.target.checked; saveSettings(); };
+$('invscroll').onchange = (e) => { G.settings.invertScroll = e.target.checked; saveSettings(); };
 $('quality').onchange = (e) => { G.settings.quality = e.target.value; saveSettings(); applyQuality(); resize(); };
 $('sens').oninput = (e) => { G.settings.sens = +e.target.value; saveSettings(); };
 $('vol').oninput = (e) => { G.settings.volume = +e.target.value; saveSettings(); setVolume(G.settings.volume); };
@@ -628,6 +737,7 @@ $('vol').oninput = (e) => { G.settings.volume = +e.target.value; saveSettings();
 // debug/test hook
 window.__osr = {
   G, startMatch, keys, mouse, cam, view,
+  setLocked(v) { locked = v; }, // tests: pretend the pointer is locked
   // fast-forward the simulation (testing aid)
   tick(n = 1) { for (let i = 0; i < n; i++) { simNow += 33; tick(1 / 30, simNow); } },
   sim(seconds, step = 1 / 30) { const t0 = performance.now(); for (let t = 0; t < seconds && (G.phase === 'play' || G.phase === 'bus'); t += step) updateMatch(step); return performance.now() - t0; },

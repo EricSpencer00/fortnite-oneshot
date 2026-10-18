@@ -45,7 +45,7 @@ export class Bot extends Actor {
     this.dropT = rr(0.1, 0.9); // fraction of bus route
     this.land = null;
     this.buildCd = 0; this.alertT = -99; this.burst = 0;
-    this.aimYaw = 0; this.aimPitch = 0;
+    this.aimYaw = 0; this.aimPitch = 0; this.emoteT = 0;
     this.mats.wood = Math.floor(rr(0, 60));
   }
 
@@ -64,6 +64,15 @@ export class Bot extends Actor {
     this.tickTimers(dt);
     if (this.mode === 'sky' || this.mode === 'glide') return this.updateAir(dt);
     if (this.mode !== 'ground') return;
+    // victory dance after an elimination, unless someone's shooting at us
+    if (this.emoteT > 0) {
+      this.emoteT -= dt;
+      if (G.time - this.lastHurtT < 0.5) this.emoteT = 0;
+      this.emote = this.emoteT > 0;
+      this.vel.x *= 0.8; this.vel.z *= 0.8;
+      moveActor(this, dt, 0.42, 1.8);
+      if (this.emote) return;
+    }
 
     this.think -= dt;
     if (this.think <= 0) { this.think = near ? rr(0.18, 0.3) : rr(0.4, 0.7); this.decide(); }

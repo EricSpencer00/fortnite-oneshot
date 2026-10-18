@@ -28,7 +28,7 @@ export class Actor {
     this.matSel = 0;
     this.fireCd = 0; this.reloadT = 0; this.healT = 0; this.healSlot = -1;
     this.kick = 0; this.swing = 0; this.equipT = 0;
-    this.kills = 0; this.lastAttacker = null; this.lastHurtT = -99;
+    this.kills = 0; this.emote = false; this.deadT = undefined; this.lastAttacker = null; this.lastHurtT = -99;
     this.place = 0;
     this.ch.root.visible = false;
     this.noGravity = false;
@@ -102,7 +102,7 @@ export class Actor {
   die(attacker, opts) {
     this.alive = false;
     this.mode = 'dead';
-    this.ch.root.visible = false;
+    this.deadT = 0; // keep the body around briefly for the death animation
     if (attacker && attacker !== this) attacker.kills++;
     if (G.onElim) G.onElim(this, attacker, opts);
   }
@@ -160,7 +160,12 @@ export class Actor {
 
   syncVisual(dt, visible = true) {
     const r = this.ch.root;
-    r.visible = this.alive && this.mode !== 'bus' && visible;
+    const dying = !this.alive && this.deadT !== undefined && this.deadT < 1.6;
+    if (!this.alive && this.deadT !== undefined) {
+      const was = this.deadT; this.deadT += dt;
+      if (was < 1.6 && this.deadT >= 1.6 && G.onBodyGone) G.onBodyGone(this);
+    }
+    r.visible = (this.alive || dying) && this.mode !== 'bus' && visible;
     if (!r.visible) return;
     r.position.copy(this.pos);
     r.rotation.y = this.yaw;
@@ -168,7 +173,9 @@ export class Actor {
     const holding = it.kind === 'heal' ? 'heal' : it.type;
     setHeld(this.ch, it.kind === 'heal' ? 'heal' + it.type : it.type + it.rarity, it.type, it.rarity || 0);
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    animateCharacter(this.ch, dt, { speed: sp, onGround: this.onGround, pitch: this.pitch, mode: this.mode, holding, kick: this.kick, swing: this.swing });
+    if (!this.alive) { this.vel.set(0, 0, 0); }
+    this.ch.lod = this.isPlayer ? 0 : (G.camera && G.camera.position.distanceToSquared(this.pos) > 70 * 70 ? 1 : 0);
+    animateCharacter(this.ch, dt, { speed: this.alive ? sp : 0, onGround: this.onGround || !this.alive, pitch: this.pitch, yaw: this.yaw, mode: this.alive ? this.mode : 'ground', holding, kick: this.kick, swing: this.swing, emote: this.emote, dead: !this.alive });
   }
 }
 

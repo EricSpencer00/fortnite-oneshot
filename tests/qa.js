@@ -81,10 +81,55 @@ ok('hotbar icons render', [...document.querySelectorAll('#hotbar img')].filter(i
 home(); P.mats.wood=300; o.cam.yaw=0; key('KeyC'); o.keys.add('KeyW'); o.mouse.l=true; const y0=P.pos.y; o.tick(30*3); o.mouse.l=false; o.keys.delete('KeyW'); key('Digit2');
 ok('ramp rush climbs', P.pos.y > y0+6, 'climbed '+(P.pos.y-y0).toFixed(1)+'m');
 
-P.takeDamage(500, real[1], {weapon:'ar'}); await new Promise(r=>setTimeout(r,1700));
+P.takeDamage(500, real[1], {weapon:'ar'}); await new Promise(r=>setTimeout(r,2100));
 ok('death → end screen', G.phase==='end' && !document.getElementById('end').classList.contains('hidden'), document.getElementById('end-place').textContent+' / '+document.getElementById('end-sub').textContent);
 document.getElementById('again').click(); ok('play again fully resets', G.phase==='bus' && G.alive===30 && G.builds.length===0 && P.alive && P.slots.every(s=>!s) && P.mats.wood===0 && G.chests.every(c=>!c.opened) && G.bots.every(b=>b.mode==='bus'));
 document.getElementById('quit').click(); ok('quit to menu', G.phase==='menu' && document.getElementById('hud').classList.contains('hidden'));
+
+// ---- new: Magic Mouse input
+o.startMatch(); G.bots.forEach(b=>{b.alive=false;b.mode='dead';b.deadT=9;}); P.mode='ground'; P.noGravity=false; G.phase='play'; home();
+P.give({kind:'weapon',type:'ar',rarity:1,mag:30}); P.give({kind:'weapon',type:'smg',rarity:1,mag:30}); P.give({kind:'weapon',type:'pistol',rarity:1,mag:12});
+o.setLocked(true); key('Digit1'); o.tick(1);
+const wheel=(dy,mode=0)=>dispatchEvent(new WheelEvent('wheel',{deltaY:dy,deltaMode:mode}));
+const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
+// a Magic Mouse swipe: ~30 small momentum events over ~350 ms
+for(let i=0;i<30;i++){ wheel(Math.max(1, 14 - i*0.45)); await wait(12); } o.tick(1);
+const afterSwipe=P.active;
+ok('magic mouse swipe = one slot', afterSwipe===0, 'active='+afterSwipe);
+await wait(250); key('Digit1'); o.tick(1);
+for(let i=0;i<3;i++){ wheel(100); await wait(70); o.tick(1); } ok('notched wheel = one slot per click', P.active===2, 'active='+P.active);
+await wait(250); key('Digit1'); o.tick(1); wheel(3,1); o.tick(1); ok('line-mode wheel steps', P.active===0);
+G.settings.invertScroll=true; await wait(250); key('Digit3'); o.tick(1); wheel(100); o.tick(1); ok('invert scroll', P.active===0, 'active='+P.active); G.settings.invertScroll=false;
+key('KeyQ'); await wait(250); wheel(100); o.tick(1); ok('wheel cycles build piece in build mode', o.view.building==='floor', o.view.building); key('Digit2');
+const cv=document.getElementById('game');
+cv.dispatchEvent(new MouseEvent('mousedown',{button:0,ctrlKey:true,bubbles:true})); o.tick(1); ok('ctrl+click aims (no right click)', o.mouse.r===true && !o.mouse.l);
+dispatchEvent(new MouseEvent('mouseup',{button:0,bubbles:true})); o.tick(1); ok('ctrl+click release stops aiming', o.mouse.r===false);
+G.settings.aimToggle=true; cv.dispatchEvent(new MouseEvent('mousedown',{button:2,bubbles:true})); dispatchEvent(new MouseEvent('mouseup',{button:2,bubbles:true})); o.tick(1); const tog1=o.mouse.r;
+cv.dispatchEvent(new MouseEvent('mousedown',{button:2,bubbles:true})); dispatchEvent(new MouseEvent('mouseup',{button:2,bubbles:true})); o.tick(1);
+ok('toggle aim mode', tog1===true && o.mouse.r===false); G.settings.aimToggle=false; o.mouse.r=false; o.setLocked(false);
+
+// ---- new: emote, llamas, supply drop, XP, robots
+key('KeyB'); o.tick(20); ok('B starts dance emote', P.emote && P.ch.current==='Dance', P.ch.current);
+o.keys.add('KeyW'); o.tick(2); o.keys.delete('KeyW'); ok('moving cancels emote', !P.emote);
+const llamas=G.chests.filter(c=>c.kind==='llama'); ok('3 loot llamas spawned', llamas.length===3);
+const lm=llamas[0]; P.pos.set(lm.x+1.5, lm.y+2, lm.z); P.vel.set(0,0,0); settle(); const xp0=G.stats.xp, l0=G.loot.length; key('KeyE'); o.tick(40);
+ok('llama smashes into loot + XP', lm.opened && !lm.mesh.visible && G.stats.xp>=xp0+50 && G.loot.length - l0 >= 6, 'loot+'+(G.loot.length-l0)+' xp+'+(G.stats.xp-xp0));
+G.storm.phase=1; G.storm.state='wait'; G.onStormEvent('wait'); const dr=G.chests.find(c=>c.kind==='drop'); ok('supply drop spawns in the safe zone', !!dr && Math.hypot(dr.x-G.storm.toX, dr.z-G.storm.toZ) <= G.storm.toR);
+P.pos.set(dr.x+1.6, dr.y+3, dr.z); P.vel.set(0,0,0); settle(); key('KeyE'); o.tick(2); ok('drop locked while falling', !dr.opened);
+o.tick(30*14); key('KeyE'); o.tick(20); ok('drop lands and opens', !dr.locked && dr.opened);
+ok('robots in use', !!P.ch.robot && G.bots.every(b=>b.ch.robot));
+const hb=G.bots[3]; hb.resetBot('normal'); hb.alive=true; hb.mode='ground'; hb.pos.set(P.pos.x+3,P.pos.y,P.pos.z); hb.shield=20; hb.health=100; o.tick(2);
+let broke=false; const ob=G.onShieldBreak; G.onShieldBreak=(v,s)=>{broke=true; ob(v,s);}; hb.takeDamage(30, P, {}); G.onShieldBreak=ob;
+hb.takeDamage(200, P, {}); for(let i=0;i<60;i++) o.tick(1);
+ok('dead robot plays death then vanishes', !hb.ch.root.visible && hb.deadT>=1.6);
+const killer=G.bots[4]; killer.resetBot('normal'); killer.alive=true; killer.mode='ground'; killer.pos.set(P.pos.x+20,P.pos.y,P.pos.z); const vict=G.bots[5]; vict.resetBot('normal'); vict.alive=true; vict.mode='ground'; vict.pos.set(P.pos.x+22,P.pos.y,P.pos.z);
+let danced=false; for(let k=0;k<6 && !danced;k++){ vict.alive=true; vict.health=100; vict.mode='ground'; vict.takeDamage(500, killer, {weapon:'ar'}); killer.lastHurtT=-99; o.tick(5); danced=killer.emote; }
+ok('bots dance after an elimination (sometimes)', danced);
+o.startMatch(); P.takeDamage=()=>0; o.sim(450); await wait(300);
+ok('victory: dance + confetti, results card waits', G.won && P.emote && document.getElementById('end').classList.contains('hidden'));
+o.tick(30); ok('victory dance animation', P.ch.current==='Dance', P.ch.current);
+await wait(4300); ok('results card shows XP', !document.getElementById('end').classList.contains('hidden') && /XP/.test(document.getElementById('end-stats').textContent), document.getElementById('end-stats').textContent);
+delete P.takeDamage;
 
 const times=[]; for(let k=0;k<3;k++){ o.startMatch(); P.takeDamage=()=>0; o.sim(450); times.push(G.phase==='end'?Math.round(G.time)+'s':'STUCK('+G.phase+','+G.alive+')'); delete P.takeDamage; }
 await new Promise(r=>setTimeout(r,800));

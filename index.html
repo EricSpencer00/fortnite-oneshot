@@ -14,6 +14,7 @@
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
   "./js/actor.js": "./js/actor.js?v=dev",
   "./js/audio.js": "./js/audio.js?v=dev",
   "./js/bot.js": "./js/bot.js?v=dev",
@@ -22,11 +23,14 @@
   "./js/combat.js": "./js/combat.js?v=dev",
   "./js/config.js": "./js/config.js?v=dev",
   "./js/fx.js": "./js/fx.js?v=dev",
+  "./js/fun.js": "./js/fun.js?v=dev",
+  "./js/env.js": "./js/env.js?v=dev",
   "./js/geom.js": "./js/geom.js?v=dev",
   "./js/hud.js": "./js/hud.js?v=dev",
   "./js/loot.js": "./js/loot.js?v=dev",
   "./js/main.js": "./js/main.js?v=dev",
   "./js/physics.js": "./js/physics.js?v=dev",
+  "./js/robot.js": "./js/robot.js?v=dev",
   "./js/state.js": "./js/state.js?v=dev",
   "./js/storm.js": "./js/storm.js?v=dev",
   "./js/terrain.js": "./js/terrain.js?v=dev",
@@ -57,6 +61,7 @@
   </div>
 
   <div id="feed"></div>
+  <div id="xpfeed"></div>
   <div id="center-msg"></div>
   <div id="elim-msg"></div>
   <div id="prompt"></div>
@@ -108,13 +113,23 @@
       <label>Sensitivity <input id="sens" type="range" min="0.2" max="3" step="0.05" value="1"></label>
       <label>Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.6"></label>
     </div>
+    <div class="row">
+      <label>Aim (right click)
+        <select id="aimmode"><option value="hold">Hold</option><option value="toggle">Toggle</option></select>
+      </label>
+      <label class="checks">
+        <span><input type="checkbox" id="rawinput" checked> Raw mouse input</span>
+        <span><input type="checkbox" id="invscroll"> Invert scroll</span>
+      </label>
+    </div>
     <details class="controls"><summary>Controls</summary>
       <div class="grid">
         <span>WASD</span>Move<span>Mouse</span>Aim<span>Left click</span>Fire / use<span>Right click</span>Aim down sights
         <span>Space</span>Jump / deploy<span>Shift</span>Sprint<span>R</span>Reload<span>E</span>Pick up / open chest
         <span>1</span>Pickaxe<span>2–6</span>Inventory slots<span>Wheel</span>Cycle slots<span>Q / X / C</span>Build wall / floor / ramp
-        <span>G</span>Change material<span>M</span>Map<span>Esc</span>Pause
+        <span>G</span>Change material<span>B</span>Emote (dance)<span>M</span>Map<span>Esc</span>Pause
       </div>
+      <p class="mm"><b>Magic Mouse / trackpad:</b> swipe once on the mouse to change one slot (in build mode it changes piece). No right click? Hold <b>Ctrl</b> and click to aim, or turn on "Secondary click" in System Settings › Mouse. Set Aim to <i>Toggle</i> to aim with one click. Leave <i>Raw mouse input</i> on for consistent aim without macOS acceleration.</p>
     </details>
   </div>
   <div id="loading">Loading island…</div>

@@ -25,6 +25,10 @@ button.big:disabled { filter: grayscale(1); opacity: 0.6; }
 .row { display: flex; gap: 14px; margin-top: 16px; }
 .row label { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; opacity: 0.95; }
 select, input[type=range] { width: 100%; }
+.row label.checks { justify-content: flex-end; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 14px; }
+.row label.checks span { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.row label.checks input { accent-color: var(--gold); width: 16px; height: 16px; }
+.controls .mm { margin: 12px 0 2px; font-size: 13px; line-height: 1.45; opacity: 0.92; }
 select { font: 600 15px 'Rubik', sans-serif; padding: 8px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.25); background: rgba(10, 20, 50, 0.8); color: #fff; }
 input[type=range] { accent-color: var(--gold); }
 .controls { margin-top: 18px; background: var(--panel); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
@@ -133,3 +137,14 @@ input[type=range] { accent-color: var(--gold); }
   .menu-inner { margin-left: 16px; }
   .controls .grid { grid-template-columns: auto 1fr; }
 }
+
+#xpfeed { position: absolute; right: 16px; top: 46%; width: 230px; text-align: right; font-size: 17px; }
+#xpfeed div { margin-bottom: 4px; animation: xpin 0.3s cubic-bezier(.2,1.6,.4,1); transition: opacity 0.4s, transform 0.4s; }
+#xpfeed div b { color: #ffd23f; font-size: 20px; margin-right: 4px; }
+#xpfeed div.out { opacity: 0; transform: translateX(30px); }
+@keyframes xpin { from { transform: translateX(40px) scale(1.3); opacity: 0; } }
+#elim-msg .combo { display: block; font-family: 'Luckiest Guy', sans-serif; font-size: 34px; color: #ffd23f; letter-spacing: 1px; }
+#end-stats { grid-template-columns: repeat(2, 1fr) !important; }
+#end-stats .xp b { color: #ffd23f; }
+#dmgnums div { animation: dmgpop 0.25s cubic-bezier(.2,1.8,.4,1); }
+@keyframes dmgpop { from { font-size: 40px; } }
