@@ -57,4 +57,6 @@ Then open http://localhost:8000. ES modules need a server, so opening the file d
 
 To test from the dev console: `__osr.startMatch()` starts a match, and `__osr.sim(60)` fast-forwards the simulation by 60 s.
 
+QA suite (37 checks covering the drop, looting, chests, shooting, reloads, heals, building, harvesting, storm, scope, death, restart and full matches): open the game, then run `await import('./tests/qa.js')` in the console and read `window.__qa`.
+
 The earlier Rust/macroquad and Godot builds are still in git history.

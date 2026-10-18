@@ -16,6 +16,7 @@ button { font-family: inherit; cursor: pointer; }
 .menu-inner { position: relative; z-index: 1; margin-right: auto; margin-left: 6vw; max-width: 460px; width: calc(100% - 32px); }
 .logo { font-family: 'Luckiest Guy', 'Rubik', sans-serif; font-weight: 400; font-size: clamp(54px, 9vw, 104px); line-height: 0.86; margin: 0; letter-spacing: 2px; color: #fff; text-shadow: 0 6px 0 #1a3d8f, 0 10px 30px rgba(0,0,0,0.5); }
 .logo span { display: block; color: var(--gold); text-shadow: 0 6px 0 #b66d00, 0 10px 30px rgba(0,0,0,0.5); }
+#touchnote { background: rgba(255, 90, 90, 0.85); padding: 10px 14px; border-radius: 8px; font-weight: 700; margin: -10px 0 18px; }
 .tag { font-weight: 700; font-size: 18px; opacity: 0.9; margin: 14px 0 26px; }
 button.big { display: block; width: 100%; font-family: 'Luckiest Guy', sans-serif; font-size: 40px; letter-spacing: 2px; padding: 14px 0 8px; border: 0; border-radius: 10px; color: #2a1600; background: linear-gradient(#ffe36b, #ffb800); box-shadow: 0 6px 0 #b67900, 0 12px 24px rgba(0,0,0,0.35); transition: transform 0.08s; }
 button.big:hover { transform: translateY(-2px) scale(1.01); }
@@ -128,7 +129,7 @@ input[type=range] { accent-color: var(--gold); }
 
 @media (max-width: 700px) {
   #topright { width: 130px; } #minimap { width: 130px; height: 130px; }
-  .slot { width: 50px; height: 50px; } #bottomleft { width: 180px; } #feed { width: 220px; font-size: 12px; }
+  .slot { width: 50px; height: 50px; } #hotbar { bottom: 74px; } #buildbar { bottom: 136px; } #bottomleft { width: 180px; } #feed { width: 220px; font-size: 12px; }
   .menu-inner { margin-left: 16px; }
   .controls .grid { grid-template-columns: auto 1fr; }
 }

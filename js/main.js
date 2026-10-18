@@ -146,7 +146,7 @@ document.addEventListener('pointerlockchange', () => {
 // ------------------------------------------------------------------ player view state
 const view = { building: null, prompt: null, progress: null, spread: 0, scoped: false, inStorm: false, camYaw: 0, hideCross: false };
 const cam = { yaw: 0, pitch: -0.1, dist: 4, fov: G.settings.fov, shake: 0 };
-let bloom = 0, lastPlaced = '', mapOpen = false;
+let bloom = 0, lastPlaced = '', mapOpen = false, buildCd = 0;
 
 function onKey(code) {
   if (code === 'Escape' && G.phase === 'paused') { /* browser handles unlock */ }
@@ -288,7 +288,8 @@ function updatePlayer(dt) {
     const ok = canPlace(p, pl);
     showGhost(pl, ok);
     const k = `${pl.type}${pl.cx},${pl.cz},${pl.y.toFixed(1)},${pl.dir}`;
-    if (mouse.l && ok && k !== lastPlaced && p.fireCd <= 0) { placeBuild(p, pl); lastPlaced = k; p.fireCd = 0.12; }
+    buildCd -= dt;
+    if (mouse.l && ok && k !== lastPlaced && buildCd <= 0) { placeBuild(p, pl); lastPlaced = k; buildCd = 0.12; }
     if (!mouse.l) lastPlaced = '';
     view.spread = 0;
     return;
@@ -317,7 +318,14 @@ function updatePlayer(dt) {
         const skip = Math.max(0, tmp.subVectors(chest, o).dot(camFwd));
         tmp2.copy(o).addScaledVector(camFwd, skip);
         muzzle.copy(chest).addScaledVector(fwd, 0.7).addScaledVector(rightV, 0.28); muzzle.y += 0.25;
-        const res = fireWeapon(p, tmp2, camFwd, muzzle, spread, w.melee ? chest : p.eye);
+        let res;
+        if (w.melee) {
+          // swing from the body toward whatever the crosshair is on (camera ray is offset by the shoulder)
+          const hit = rayWorld(tmp2.x, tmp2.y, tmp2.z, camFwd.x, camFwd.y, camFwd.z, 4);
+          const aim = tmp.copy(tmp2).addScaledVector(camFwd, hit ? hit.t : 2.5);
+          const swingDir = aim.sub(chest).normalize();
+          res = fireWeapon(p, chest.clone(), swingDir, muzzle, 0);
+        } else res = fireWeapon(p, tmp2, camFwd, muzzle, spread, p.eye);
         if (!w.melee) {
           bloom = Math.min(w.spread * 1.6, bloom + w.spread * 0.18);
           cam.pitch += w.recoil * (ads ? 0.6 : 1) * (0.8 + Math.random() * 0.4);
@@ -605,6 +613,7 @@ $('difficulty').value = G.settings.difficulty || 'normal';
 $('quality').value = G.settings.quality;
 $('sens').value = G.settings.sens;
 $('vol').value = G.settings.volume;
+if (matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches) $('touchnote').classList.remove('hidden');
 $('play').onclick = startMatch;
 $('again').onclick = startMatch;
 $('resume').onclick = () => pause(false);
