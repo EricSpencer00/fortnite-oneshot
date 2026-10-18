@@ -28,9 +28,9 @@ ok('E picks up weapon & auto-equips', P.slots[0]&&P.slots[0].type==='ar' && P.ac
 ok('ammo auto-picked', P.ammo.medium>=60, 'medium='+P.ammo.medium);
 
 const ch=G.chests.find(c=>!c.opened); P.pos.set(ch.x+1.2, ch.y+0.5, ch.z); P.vel.set(0,0,0); settle();
-const near=()=>G.loot.filter(l=>Math.hypot(l.x-ch.x,l.z-ch.z)<5).length; const n0=near(); const mats0=P.mats.wood;
+const near=()=>G.loot.filter(l=>Math.hypot(l.x-ch.x,l.z-ch.z)<5).length; const n0=near(); const mats0=P.mats.wood; const ammo0=JSON.stringify(P.ammo);
 key('KeyE'); o.tick(40);
-ok('E opens chest & drops loot', ch.opened && near()+(P.mats.wood>mats0?1:0)+(P.ammo.medium>60?1:0) >= n0+4, 'opened='+ch.opened);
+ok('E opens chest & drops loot', ch.opened && near()+(P.mats.wood>mats0?1:0)+(JSON.stringify(P.ammo)!==ammo0?1:0) >= n0+4, 'opened='+ch.opened);
 home();
 
 key('Digit1'); ok('1 = pickaxe', P.active===-1); key('Digit2'); ok('2 = slot 1', P.active===0);

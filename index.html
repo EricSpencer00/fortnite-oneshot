@@ -9,9 +9,29 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Rubik:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=dev">
+<!-- ?v=dev is replaced with the commit hash at deploy time (cache busting behind Cloudflare) -->
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "./js/actor.js": "./js/actor.js?v=dev",
+  "./js/audio.js": "./js/audio.js?v=dev",
+  "./js/bot.js": "./js/bot.js?v=dev",
+  "./js/build.js": "./js/build.js?v=dev",
+  "./js/character.js": "./js/character.js?v=dev",
+  "./js/combat.js": "./js/combat.js?v=dev",
+  "./js/config.js": "./js/config.js?v=dev",
+  "./js/fx.js": "./js/fx.js?v=dev",
+  "./js/geom.js": "./js/geom.js?v=dev",
+  "./js/hud.js": "./js/hud.js?v=dev",
+  "./js/loot.js": "./js/loot.js?v=dev",
+  "./js/main.js": "./js/main.js?v=dev",
+  "./js/physics.js": "./js/physics.js?v=dev",
+  "./js/state.js": "./js/state.js?v=dev",
+  "./js/storm.js": "./js/storm.js?v=dev",
+  "./js/terrain.js": "./js/terrain.js?v=dev",
+  "./js/world.js": "./js/world.js?v=dev"
+} }
 </script>
 </head>
 <body>
@@ -119,6 +139,6 @@
   </div>
 </div>
 
-<script type="module" src="js/main.js"></script>
+<script type="module" src="./js/main.js?v=dev"></script>
 </body>
 </html>
