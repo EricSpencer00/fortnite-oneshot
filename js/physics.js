@@ -93,6 +93,32 @@ export function groundHeight(x, z, feetY, r, step = 0.6) {
   return g;
 }
 
+function depenetrate(a, r, h, step) {
+  const p = a.pos;
+  const list = queryBox(p.x - r, p.z - r, p.x + r, p.z + r);
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c.noBlock) continue;
+    if (c.ramp) {
+      if (p.x + r <= c.minX || p.x - r >= c.maxX || p.z + r <= c.minZ || p.z - r >= c.maxZ) continue;
+      const sh = rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, p.x)), Math.min(c.maxZ, Math.max(c.minZ, p.z)));
+      if (sh <= p.y + 0.62 || sh - 0.25 >= p.y + h) continue;
+      // out the side of the slab (perpendicular to its slope)
+      const alongX = c.ramp.dir === 1 || c.ramp.dir === 3;
+      if (alongX) { const a1 = p.z + r - c.minZ, a2 = c.maxZ - (p.z - r); p.z += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
+      else { const a1 = p.x + r - c.minX, a2 = c.maxX - (p.x - r); p.x += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
+      continue;
+    }
+    if (c.maxY <= p.y + step || c.minY >= p.y + h) continue;
+    const ox1 = p.x + r - c.minX, ox2 = c.maxX - (p.x - r);
+    const oz1 = p.z + r - c.minZ, oz2 = c.maxZ - (p.z - r);
+    if (ox1 <= 0 || ox2 <= 0 || oz1 <= 0 || oz2 <= 0) continue;
+    const m = Math.min(ox1, ox2, oz1, oz2);
+    if (m === ox1) p.x -= ox1 + 0.001; else if (m === ox2) p.x += ox2 + 0.001;
+    else if (m === oz1) p.z -= oz1 + 0.001; else p.z += oz2 + 0.001;
+  }
+}
+
 // Move an actor {pos, vel, onGround} with radius r and height h.
 export function moveActor(a, dt, r, h) {
   if (!a.noGravity) a.vel.y -= GRAVITY * dt;
@@ -144,32 +170,9 @@ export function moveActor(a, dt, r, h) {
   const lim = HALF - 4;
   if (dist > lim) { p.x *= lim / dist; p.z *= lim / dist; }
 
-  // depenetrate: if something appeared inside us (a fresh build piece, a corner
-  // squeeze), push out along the shallowest axis
-  {
-    const list = queryBox(p.x - r, p.z - r, p.x + r, p.z + r);
-    for (let i = 0; i < list.length; i++) {
-      const c = list[i];
-      if (c.noBlock) continue;
-      if (c.ramp) {
-        if (p.x + r <= c.minX || p.x - r >= c.maxX || p.z + r <= c.minZ || p.z - r >= c.maxZ) continue;
-        const sh = rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, p.x)), Math.min(c.maxZ, Math.max(c.minZ, p.z)));
-        if (sh <= p.y + 0.62 || sh - 0.25 >= p.y + h) continue;
-        // out the side of the slab (perpendicular to its slope)
-        const alongX = c.ramp.dir === 1 || c.ramp.dir === 3;
-        if (alongX) { const a1 = p.z + r - c.minZ, a2 = c.maxZ - (p.z - r); p.z += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
-        else { const a1 = p.x + r - c.minX, a2 = c.maxX - (p.x - r); p.x += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
-        continue;
-      }
-      if (c.maxY <= p.y + step || c.minY >= p.y + h) continue;
-      const ox1 = p.x + r - c.minX, ox2 = c.maxX - (p.x - r);
-      const oz1 = p.z + r - c.minZ, oz2 = c.maxZ - (p.z - r);
-      if (ox1 <= 0 || ox2 <= 0 || oz1 <= 0 || oz2 <= 0) continue;
-      const m = Math.min(ox1, ox2, oz1, oz2);
-      if (m === ox1) p.x -= ox1 + 0.001; else if (m === ox2) p.x += ox2 + 0.001;
-      else if (m === oz1) p.z -= oz1 + 0.001; else p.z += oz2 + 0.001;
-    }
-  }
+  // depenetrate: if something appeared inside us (fresh build, corner squeeze)
+  depenetrate(a, r, h, step);
+
 
 
   // vertical
@@ -217,6 +220,7 @@ export function moveActor(a, dt, r, h) {
   } else if (wasGround && a.vel.y <= 0 && p.y - g < 0.7) {
     p.y = g; a.vel.y = 0; a.onGround = true; // snap down slopes/ramps
   } else a.onGround = false;
+  depenetrate(a, r, h, a.onGround ? 0.62 : 0.25); // last word: never end a tick inside geometry
 }
 
 // ---------------------------------------------------------------- raycasts
