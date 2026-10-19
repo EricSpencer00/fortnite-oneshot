@@ -125,6 +125,16 @@ export function canPlace(actor, p) {
   for (const b of G.builds) if (sameSpot(b, p)) return false;
   // don't trap other actors inside walls/floors
   const box = pieceBox(p);
+  if (p.type === 'ramp') {
+    // never build a ramp slab through someone's body (walking on its low end is fine)
+    const fake = { ...box, ramp: { dir: p.dir } };
+    for (const a of G.actors) {
+      if (!a.alive || a.mode === 'bus') continue;
+      if (a.pos.x + 0.42 <= box.minX || a.pos.x - 0.42 >= box.maxX || a.pos.z + 0.42 <= box.minZ || a.pos.z - 0.42 >= box.maxZ) continue;
+      const sh = rampHeightAt(fake, Math.min(box.maxX, Math.max(box.minX, a.pos.x)), Math.min(box.maxZ, Math.max(box.minZ, a.pos.z)));
+      if (sh > a.pos.y + 0.45 && sh - 0.25 < a.pos.y + 1.8) return false;
+    }
+  }
   if (p.type !== 'ramp') {
     for (const a of G.actors) {
       if (!a.alive || a === actor && p.type === 'wall') continue;

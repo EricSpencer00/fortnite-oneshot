@@ -109,7 +109,23 @@ export function moveActor(a, dt, r, h) {
     const list = queryBox(p.x - r, p.z - r, p.x + r, p.z + r);
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
-      if (c.ramp || c.noBlock) continue;
+      if (c.noBlock) continue;
+      if (c.ramp) {
+        // a ramp slab blocks where its surface is at body height (walk up it or under it, not through it)
+        if (p.x + r <= c.minX || p.x - r >= c.maxX || p.z + r <= c.minZ || p.z - r >= c.maxZ) continue;
+        const sh = rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, p.x)), Math.min(c.maxZ, Math.max(c.minZ, p.z)));
+        if (sh <= p.y + step || sh - 0.25 >= p.y + h) continue;
+        // already embedded before this step (a ramp was built on us)? let them walk out
+        const ox = axis === 0 ? p.x - d : p.x, oz = axis === 1 ? p.z - d : p.z;
+        if (!(ox + r <= c.minX || ox - r >= c.maxX || oz + r <= c.minZ || oz - r >= c.maxZ)) {
+          const sh0 = rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, ox)), Math.min(c.maxZ, Math.max(c.minZ, oz)));
+          if (sh0 > p.y + step && sh0 - 0.25 < p.y + h) continue;
+        }
+        if (axis === 0) p.x -= d; else p.z -= d; // refuse this axis step
+        if (axis === 0) a.vel.x = 0; else a.vel.z = 0;
+        a.bumped = true;
+        continue;
+      }
       if (c.maxY <= p.y + step || c.minY >= p.y + h) continue;
       if (p.x + r <= c.minX || p.x - r >= c.maxX || p.z + r <= c.minZ || p.z - r >= c.maxZ) continue;
       if (axis === 0) {
@@ -134,7 +150,18 @@ export function moveActor(a, dt, r, h) {
     const list = queryBox(p.x - r, p.z - r, p.x + r, p.z + r);
     for (let i = 0; i < list.length; i++) {
       const c = list[i];
-      if (c.ramp || c.noBlock || c.maxY <= p.y + step || c.minY >= p.y + h) continue;
+      if (c.noBlock) continue;
+      if (c.ramp) {
+        if (p.x + r <= c.minX || p.x - r >= c.maxX || p.z + r <= c.minZ || p.z - r >= c.maxZ) continue;
+        const sh = rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, p.x)), Math.min(c.maxZ, Math.max(c.minZ, p.z)));
+        if (sh <= p.y + 0.62 || sh - 0.25 >= p.y + h) continue;
+        // out the side of the slab (perpendicular to its slope)
+        const alongX = c.ramp.dir === 1 || c.ramp.dir === 3;
+        if (alongX) { const a1 = p.z + r - c.minZ, a2 = c.maxZ - (p.z - r); p.z += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
+        else { const a1 = p.x + r - c.minX, a2 = c.maxX - (p.x - r); p.x += a1 < a2 ? -(a1 + 0.001) : a2 + 0.001; }
+        continue;
+      }
+      if (c.maxY <= p.y + step || c.minY >= p.y + h) continue;
       const ox1 = p.x + r - c.minX, ox2 = c.maxX - (p.x - r);
       const oz1 = p.z + r - c.minZ, oz2 = c.maxZ - (p.z - r);
       if (ox1 <= 0 || ox2 <= 0 || oz1 <= 0 || oz2 <= 0) continue;

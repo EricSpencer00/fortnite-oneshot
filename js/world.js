@@ -93,12 +93,16 @@ export function buildWorld(scene, tex, mats) {
         addCollider({ minX: x0 + t, minY: fy, minZ: z0 + t, maxX: x1 - t - 2.4, maxY: fy + 0.2, maxZ: z1 - t, kind: 'house' });
         // stair along +z on the x1 side
         const sx0 = x1 - t - 2.4, sx1 = x1 - t, sz0 = z0 + t + 0.5, sz1 = sz0 + 4.2;
-        const steps = 12;
+        const steps = 12, rise = fy + 0.2 - y - 0.15;
         for (let s = 0; s < steps; s++) {
-          const sy = y + 0.15 + ((s + 1) / steps) * (fy + 0.2 - y - 0.15);
-          trim.box(sx0, y + 0.15, sz0 + (s / steps) * (sz1 - sz0), sx1, sy, sz0 + ((s + 1) / steps) * (sz1 - sz0), 0.5); // solid steps
+          const sy = y + 0.15 + ((s + 1) / steps) * rise;
+          const za = sz0 + (s / steps) * (sz1 - sz0), zb = sz0 + ((s + 1) / steps) * (sz1 - sz0);
+          trim.box(sx0, y + 0.15, za, sx1, sy, zb, 0.5); // solid steps
+          // each step is solid too: nobody gets under or inside the staircase
+          addCollider({ minX: sx0, minY: y + 0.15, minZ: za, maxX: sx1, maxY: sy, maxZ: zb, kind: 'house' });
         }
-        addCollider({ minX: sx0, minY: y + 0.15, minZ: sz0, maxX: sx1, maxY: fy + 0.2, maxZ: sz1, kind: 'house', ramp: { dir: 0 } });
+        // smooth walking surface that touches every tread's nose (feet never sink into a step)
+        addCollider({ minX: sx0, minY: y + 0.15 + rise / steps, minZ: sz0, maxX: sx1, maxY: fy + 0.2 + rise / steps, maxZ: sz1, kind: 'house', ramp: { dir: 0 }, noRay: true });
       }
       // roof (flat collider on top so you can stand on it)
       roof.gable(x0, z0, x1, z1, y + H, Math.min(w, 10) * 0.32, 0.3);

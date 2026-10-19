@@ -11,7 +11,14 @@ function penetration(a) {
   const r = 0.42, list = phys.queryBox(a.pos.x - r, a.pos.z - r, a.pos.x + r, a.pos.z + r);
   let worst = 0, what = '';
   for (const c of list) {
-    if (c.ramp || c.noBlock) continue;
+    if (c.noBlock) continue;
+    if (c.ramp) {
+      if (a.pos.x + r <= c.minX || a.pos.x - r >= c.maxX || a.pos.z + r <= c.minZ || a.pos.z - r >= c.maxZ) continue;
+      const sh = phys.rampHeightAt(c, Math.min(c.maxX, Math.max(c.minX, a.pos.x)), Math.min(c.maxZ, Math.max(c.minZ, a.pos.z)));
+      const d = Math.min(sh - (a.pos.y + 0.7), a.pos.y + 1.55 - sh);
+      if (d > worst) { worst = d; what = 'ramp slab through body'; }
+      continue;
+    }
     const ox = Math.min(a.pos.x + r, c.maxX) - Math.max(a.pos.x - r, c.minX);
     const oz = Math.min(a.pos.z + r, c.maxZ) - Math.max(a.pos.z - r, c.minZ);
     const oy = Math.min(a.pos.y + 1.7, c.maxY) - Math.max(a.pos.y + 0.05, c.minY);

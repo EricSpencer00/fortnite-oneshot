@@ -245,7 +245,7 @@ export class Bot extends Actor {
       const my = this.moveYawLast ?? this.yaw;
       const fx = Math.sin(my), fz = Math.cos(my);
       const ahead = queryBox(this.pos.x + fx * 0.9 - 0.6, this.pos.z + fz * 0.9 - 0.6, this.pos.x + fx * 0.9 + 0.6, this.pos.z + fz * 0.9 + 0.6)
-        .find((c) => c.kind === 'build' && (c.ramp ? this.stuckT > 0.5 : true) && c.maxY > this.pos.y + 0.6 && c.minY < this.pos.y + 1.7);
+        .find((c) => c.kind === 'build' && c.maxY > this.pos.y + 0.6 && c.minY < this.pos.y + 1.7 && (!c.ramp || this.bumped || this.stuckT > 0.3));
       if (ahead) {
         if (this.active !== -1 && this.item.kind !== 'heal') this.equip(-1);
         this.swing = 1; damageBuild(ahead.ref, 60, this);
@@ -380,7 +380,8 @@ export class Bot extends Actor {
     const st = h.stair, x = this.pos.x, z = this.pos.z;
     const near = (px, pz, r) => Math.hypot(px - x, pz - z) < r;
     const onStair = Math.abs(x - st.x) < 1.25 && z > st.z0 - 0.3 && z < st.z1 + 0.3;
-    const foot = { x: st.x - 1.9, z: st.z0 + 0.5 }, low = { x: st.x, z: st.z0 + 0.5 };
+    // step on/off at the first tread only (higher up, the solid steps block a side entry)
+    const foot = { x: st.x - 1.9, z: st.z0 + 0.12 }, low = { x: st.x, z: st.z0 + 0.12 };
     const topIn = { x: st.x, z: st.z1 - 0.6 }, landing = { x: st.floorX, z: st.z1 - 0.6 };
     const go = (p) => { this.transit = { to: p, t: G.time }; return p; };
     if (up) {
