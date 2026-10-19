@@ -22,7 +22,7 @@ function initGeos() {
   const s = (g, k) => { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * k, uv.getY(i) * k); return g; };
   geos = {
     wall: s(new THREE.BoxGeometry(CELL, CELL, 0.25).translate(0, CELL / 2, 0), 1.5),
-    floor: s(new THREE.BoxGeometry(CELL, 0.25, CELL).translate(0, -0.125, 0), 1.5),
+    floor: s(new THREE.BoxGeometry(CELL, 0.25, CELL).translate(0, -0.105, 0), 1.5), // top 2cm proud: no z-fighting with floors it sits on
     ramp: rampGeo(),
   };
   ghostMats = [
@@ -81,7 +81,7 @@ export function computePlacement(actor, type, pitch = 0) {
 
 function pieceBox(p) {
   const x0 = p.cx * CELL, z0 = p.cz * CELL;
-  if (p.type === 'floor') return { minX: x0, minY: p.y - 0.25, minZ: z0, maxX: x0 + CELL, maxY: p.y, maxZ: z0 + CELL };
+  if (p.type === 'floor') return { minX: x0, minY: p.y - 0.23, minZ: z0, maxX: x0 + CELL, maxY: p.y + 0.02, maxZ: z0 + CELL };
   if (p.type === 'ramp') return { minX: x0, minY: p.y, minZ: z0, maxX: x0 + CELL, maxY: p.y + CELL, maxZ: z0 + CELL };
   const t = 0.14;
   switch (p.dir) {

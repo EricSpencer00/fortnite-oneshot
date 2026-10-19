@@ -49,7 +49,8 @@ export function buildWorld(scene, tex, mats) {
       const t = 0.3;
       const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
       const batch = R() < 0.5 ? brick : wood;
-      const doorSide = Math.floor(R() * 4);
+      // two-storey stairs run along the east wall: never put the door there
+      const doorSide = twoStory ? [0, 2, 3][Math.floor(R() * 3)] : Math.floor(R() * 4);
       const dw = 1.8, dh = 2.7;
       // foundation slab (also floor) — goes down into terrain
       floor.box(x0, y - 3, z0, x1, y + 0.15, z1, 0.25);
@@ -95,7 +96,7 @@ export function buildWorld(scene, tex, mats) {
         const steps = 12;
         for (let s = 0; s < steps; s++) {
           const sy = y + 0.15 + ((s + 1) / steps) * (fy + 0.2 - y - 0.15);
-          trim.box(sx0, sy - 0.32, sz0 + (s / steps) * (sz1 - sz0), sx1, sy, sz0 + ((s + 1) / steps) * (sz1 - sz0), 0.5);
+          trim.box(sx0, y + 0.15, sz0 + (s / steps) * (sz1 - sz0), sx1, sy, sz0 + ((s + 1) / steps) * (sz1 - sz0), 0.5); // solid steps
         }
         addCollider({ minX: sx0, minY: y + 0.15, minZ: sz0, maxX: sx1, maxY: fy + 0.2, maxZ: sz1, kind: 'house', ramp: { dir: 0 } });
       }
@@ -107,7 +108,16 @@ export function buildWorld(scene, tex, mats) {
       trim.box(x1 - 0.15, y + 0.15, z0 - 0.15, x1 + 0.15, y + H, z0 + 0.15, 0.5);
       trim.box(x0 - 0.15, y + 0.15, z1 - 0.15, x0 + 0.15, y + H, z1 + 0.15, 0.5);
       trim.box(x1 - 0.15, y + 0.15, z1 - 0.15, x1 + 0.15, y + H, z1 + 0.15, 0.5);
-      world.houses.push({ x, z, w, d, y, H });
+      // navigation metadata for bots: door in/out points and the stair column
+      const dn = [[0, 1], [1, 0], [0, -1], [-1, 0]][doorSide];
+      const dc = { x: x + dn[0] * w / 2, z: z + dn[1] * d / 2 };
+      const house = {
+        x, z, w, d, y, H, x0, x1, z0, z1,
+        doorOut: { x: dc.x + dn[0] * 1.6, z: dc.z + dn[1] * 1.6 },
+        doorIn: { x: dc.x - dn[0] * 1.3, z: dc.z - dn[1] * 1.3 },
+        stair: twoStory ? { x: x1 - t - 1.2, z0: z0 + t + 0.5, z1: z0 + t + 4.7, top: y + 4.0, floorX: x1 - t - 3.4 } : null,
+      };
+      world.houses.push(house);
 
       // chest + loot inside
       if (R() < 0.7) {

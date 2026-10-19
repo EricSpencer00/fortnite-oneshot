@@ -118,6 +118,32 @@ export async function loadRobot(url) {
 
 export const robotReady = () => !!template;
 
+export function makeGlider(skin) {
+  const g = new THREE.Group();
+  const P = [], C = [], I = [];
+  const N = 14, span = 70 * Math.PI / 180;
+  const ca = new THREE.Color(skin.pack), cb = new THREE.Color(skin.shirt);
+  for (let i = 0; i <= N; i++) {
+    const a = -span + (2 * span * i) / N;
+    const x = Math.sin(a) * 2.5, y = Math.cos(a) * 1.1;
+    for (const z of [-0.85, 0.75]) { P.push(x, y, z); const c = (Math.floor(i / 2) % 2 ? ca : cb); C.push(c.r, c.g, c.b); }
+    if (i < N) { const k = i * 2; I.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+  geo.setIndex(I); geo.computeVertexNormals();
+  const canopy = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  canopy.position.y = 1.9; canopy.castShadow = true;
+  g.add(canopy);
+  const lp = [];
+  for (const sx of [-1, 1]) for (const ex of [0.55, 1.0]) { lp.push(sx * 0.35, 1.25, 0.05, sx * Math.sin(span * ex) * 2.5, 1.9 + Math.cos(span * ex) * 1.1, 0); }
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(lp, 3)), new THREE.LineBasicMaterial({ color: 0x333333 }));
+  g.add(lines);
+  g.visible = false;
+  return g;
+}
+
 export function makeRobot(skin) {
   const root = new THREE.Group();
   const model = SkeletonUtils.clone(template);
@@ -132,14 +158,10 @@ export function makeRobot(skin) {
   for (const k in clips) actions[k] = mixer.clipAction(clips[k]);
   for (const k of ['Death', 'Punch', 'Jump', 'WalkJump']) { actions[k].setLoop(THREE.LoopOnce, 1); actions[k].clampWhenFinished = true; }
   actions.Idle.play();
+  mixer.update(0.016); // never show the bind pose
 
-  // glider (hidden until deployed)
-  const glider = new THREE.Group();
-  const cg = new THREE.BufferGeometry();
-  cg.setAttribute('position', new THREE.Float32BufferAttribute([-2.2, 0, -0.6, 2.2, 0, -0.6, 0, 0.35, 1.4, -2.2, 0, -0.6, 0, 0.35, 1.4, 2.2, 0, -0.6], 3));
-  cg.computeVertexNormals();
-  const canopy = new THREE.Mesh(cg, new THREE.MeshLambertMaterial({ color: skin.pack, side: THREE.DoubleSide }));
-  canopy.position.y = 3.1; glider.add(canopy);
+  // glider (hidden until deployed): an arched parafoil + strings to the hands
+  const glider = makeGlider(skin);
   glider.visible = false; root.add(glider);
 
   return {
@@ -186,16 +208,30 @@ export function animateRobot(ch, dt, s) {
   const m = ch.model;
   m.rotation.set(0, 0, 0); m.position.set(0, 0, 0);
   let anim = 'Idle', ts = 1;
+  // lower body faces where we're moving; backpedalling plays the run in reverse
+  let bodyYaw = 0;
+  const cur = ch.current;
+  const moving = cur === 'Running' || cur === 'Walking' ? s.speed > 0.3 : s.speed > 0.7;
   if (s.dead) anim = 'Death';
   else if (s.mode === 'sky') { anim = 'Jump'; m.rotation.x = 1.2; m.position.y = 1; }
   else if (s.mode === 'glide') anim = 'Idle';
   else if (s.emote && s.speed < 0.5) anim = 'Dance';
-  else if (!s.onGround) anim = 'WalkJump';
+  else if (s.airT > 0.18 || (!s.onGround && s.vy > 3)) anim = 'WalkJump'; // ignore 1-frame bumps
   else if (s.swing > 0.6) anim = 'Punch';
-  else if (s.speed > 4.5) { anim = 'Running'; ts = s.speed / 7; }
-  else if (s.speed > 0.4) { anim = 'Walking'; ts = Math.max(0.6, s.speed / 3); }
-  if (ch.current === 'Punch' && s.swing > 0.05 && !s.dead) anim = 'Punch';
-  play(ch, anim, anim === 'Death' ? 0.1 : 0.18, ts);
+  else if (moving) {
+    const run = cur === 'Running' ? s.speed > 3.6 : s.speed > 4.6; // hysteresis: no flicker
+    anim = run ? 'Running' : 'Walking';
+    // clips are authored for ~1.4 m/s (run) / ~1.25 m/s (walk); match ground speed
+    ts = run ? Math.min(3.6, s.speed / 2.3) : Math.min(2.6, Math.max(0.7, s.speed / 1.35));
+    let rel = s.moveYaw - s.yaw;
+    while (rel > Math.PI) rel -= Math.PI * 2; while (rel < -Math.PI) rel += Math.PI * 2;
+    if (Math.abs(rel) > 1.95) { rel += rel > 0 ? -Math.PI : Math.PI; ts = -ts; }
+    bodyYaw = Math.max(-1.05, Math.min(1.05, rel));
+  }
+  if (cur === 'Punch' && s.swing > 0.05 && !s.dead) anim = 'Punch';
+  ch.bodyYaw = (ch.bodyYaw || 0) + (bodyYaw - (ch.bodyYaw || 0)) * Math.min(1, dt * 10);
+  if (s.mode === 'ground' && !s.dead) m.rotation.y = ch.bodyYaw;
+  play(ch, anim, anim === 'Death' ? 0.1 : 0.2, ts);
   // far robots animate at a lower rate
   ch.lodT = (ch.lodT || 0) + dt;
   const step = ch.lod ? 0.1 : 0;
@@ -204,12 +240,19 @@ export function animateRobot(ch, dt, s) {
 
   const b = ch.bones;
   const gun = s.holding && s.holding !== 'pickaxe' && s.holding !== 'heal';
+  // upper body counter-twists so chest/head keep facing the aim while legs strafe
+  if (Math.abs(ch.bodyYaw) > 0.01 && s.mode === 'ground' && !s.dead && b.torso) {
+    b.torso.parent.getWorldQuaternion(_pq).invert();
+    const axis = tmp.set(0, 1, 0).applyQuaternion(_pq).normalize();
+    b.torso.quaternion.premultiply(_q.setFromAxisAngle(axis, -ch.bodyYaw));
+    b.torso.updateMatrixWorld(true);
+  }
   if (s.mode === 'glide') {
     tmp.set(0, 1, 0.15).normalize();
     pointBone(b.armR, b.foreR, tmp); pointBone(b.armL, b.foreL, tmp);
   } else if (gun && !s.dead && !(s.emote && s.speed < 0.5) && s.mode === 'ground') {
     // world aim direction from yaw/pitch, with a little kick
-    const p = s.pitch + s.kick * 0.12;
+    const p = Math.max(-0.9, Math.min(1.0, s.pitch)) + s.kick * 0.12 - s.lower * 0.9;
     aim.set(Math.sin(s.yaw) * Math.cos(p), Math.sin(p), Math.cos(s.yaw) * Math.cos(p)).normalize();
     pointBone(b.armR, b.foreR, aim); pointBone(b.foreR, b.handR, aim);
     // support hand reaches for a point along the barrel
@@ -231,7 +274,7 @@ export function animateRobot(ch, dt, s) {
       ch.root.worldToLocal(tmp);
       ch.weapon.position.copy(tmp);
       if (gun) {
-        const p = s.pitch + s.kick * 0.12;
+        const p = Math.max(-0.9, Math.min(1.0, s.pitch)) + s.kick * 0.12 - s.lower * 0.9;
         ch.weapon.rotation.set(-p, 0, 0);
       } else {
         // pickaxe / heal item: follow the forearm

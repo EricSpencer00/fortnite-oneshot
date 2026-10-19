@@ -175,7 +175,10 @@ export class Actor {
     const sp = Math.hypot(this.vel.x, this.vel.z);
     if (!this.alive) { this.vel.set(0, 0, 0); }
     this.ch.lod = this.isPlayer ? 0 : (G.camera && G.camera.position.distanceToSquared(this.pos) > 70 * 70 ? 1 : 0);
-    animateCharacter(this.ch, dt, { speed: this.alive ? sp : 0, onGround: this.onGround || !this.alive, pitch: this.pitch, yaw: this.yaw, mode: this.alive ? this.mode : 'ground', holding, kick: this.kick, swing: this.swing, emote: this.emote, dead: !this.alive });
+    this.airT = this.onGround ? 0 : (this.airT || 0) + dt;
+    const w = this.weapon;
+    const lower = this.reloadT > 0 && w ? Math.sin(Math.PI * Math.min(1, 1 - this.reloadT / w.reload)) : this.equipT > 0 ? Math.min(1, this.equipT * 4) : 0;
+    animateCharacter(this.ch, dt, { lower, airT: this.airT, vy: this.vel.y, moveYaw: Math.atan2(this.vel.x, this.vel.z), speed: this.alive ? sp : 0, onGround: this.onGround || !this.alive, pitch: this.pitch, yaw: this.yaw, mode: this.alive ? this.mode : 'ground', holding, kick: this.kick, swing: this.swing, emote: this.emote, dead: !this.alive });
   }
 }
 

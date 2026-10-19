@@ -23,6 +23,24 @@ const FOG_CHUNK = `
 
 // ---------------------------------------------------------------- grass
 let grass = null;
+const blockRects = Array.from({ length: 16 }, () => new THREE.Vector4(1e9, 1e9, -1e9, -1e9));
+const blockY = new Array(16).fill(-1e9);
+// tell the grass which ground-level build pieces to stay out of (nearest 16)
+export function setGrassBlockers(builds, center) {
+  const near = [];
+  for (const b of builds) {
+    if (b.type === 'wall') continue;
+    const c = b.collider; const dx = (c.minX + c.maxX) / 2 - center.x, dz = (c.minZ + c.maxZ) / 2 - center.z;
+    const d = dx * dx + dz * dz;
+    if (d < 45 * 45) near.push([d, c]);
+  }
+  near.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < 16; i++) {
+    const c = near[i] && near[i][1];
+    if (c) { blockRects[i].set(c.minX, c.minZ, c.maxX, c.maxZ); blockY[i] = c.minY; }
+    else { blockRects[i].set(1e9, 1e9, -1e9, -1e9); blockY[i] = -1e9; }
+  }
+}
 export function makeGrass(scene, quality) {
   if (quality === 'low') return null;
   const spacing = quality === 'high' ? 0.55 : 0.75;
@@ -53,6 +71,7 @@ export function makeGrass(scene, quality) {
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uSpacing: { value: spacing }, uRadius: { value: radius } }]),
     vertexShader: `
       uniform float uTime, uSpacing, uRadius, uExtent; uniform vec2 uCenter; uniform sampler2D uHF;
+      uniform vec4 uBlock[16]; uniform float uBlockY[16];
       attribute vec2 cell; attribute float hgt;
       varying float vH; varying vec3 vView; varying float vTint;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -64,6 +83,11 @@ export function makeGrass(scene, quality) {
         vec4 hf = texture2D(uHF, uv);
         float d = distance(wxz, uCenter);
         float s = hf.g * (0.75 + r3 * 0.6) * (1.0 - smoothstep(uRadius * 0.7, uRadius, d));
+        // no blades poking through build floors/ramps resting on the ground
+        for (int i = 0; i < 16; i++) {
+          vec4 b = uBlock[i];
+          if (wxz.x > b.x && wxz.x < b.z && wxz.y > b.y && wxz.y < b.w && hf.r < uBlockY[i] + 0.5) s = 0.0;
+        }
         float ang = r1 * 6.2831;
         vec3 p = position;
         p = vec3(p.x * cos(ang) - p.z * sin(ang), p.y, p.x * sin(ang) + p.z * cos(ang));
@@ -92,6 +116,7 @@ export function makeGrass(scene, quality) {
       }`,
   });
   mat.uniforms.uTime = U.uTime; mat.uniforms.uCenter = U.uCenter; mat.uniforms.uHF = U.uHF; mat.uniforms.uExtent = U.uExtent;
+  mat.uniforms.uBlock = { value: blockRects }; mat.uniforms.uBlockY = { value: blockY };
   grass = new THREE.Mesh(blade, mat);
   grass.frustumCulled = false;
   scene.add(grass);

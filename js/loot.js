@@ -4,7 +4,7 @@ import { LOOT_WEAPONS, LOOT_WEIGHTS, WEAPONS, RARITY_HEX, HEALS, AMMO_GIVE, MATS
 import { makeWeaponModel } from './character.js';
 import { G } from './state.js';
 import { terrainHeight } from './terrain.js';
-import { groundHeight } from './physics.js';
+import { groundHeight, queryBox } from './physics.js';
 import { burst } from './fx.js';
 
 let ringGeo, ringMats, beamGeo, ammoGeo, matGeo;
@@ -55,6 +55,8 @@ export function spawnLoot(item, x, y, z, toss = false) {
     model = new THREE.Mesh(matGeo, new THREE.MeshLambertMaterial({ color: MAT_COL[MATS.indexOf(item.type)] }));
     model.position.y = 0.2; g.add(model);
   }
+  // resting loot sits on whatever surface is under it (slopes, floors)
+  if (!toss) y = groundHeight(x, z, y + 0.5, 0.1);
   g.position.set(x, y, z);
   G.scene.add(g);
   const l = { item, mesh: g, model, x, y, z, vy: toss ? 5 : 0, vx: toss ? (Math.random() - 0.5) * 4 : 0, vz: toss ? (Math.random() - 0.5) * 4 : 0, settled: !toss, spin: Math.random() * 6 };
@@ -75,13 +77,23 @@ export function updateLoot(dt, time) {
   for (const l of G.loot) {
     if (!l.settled) {
       l.vy -= 20 * dt;
-      l.x += l.vx * dt; l.z += l.vz * dt; l.y += l.vy * dt;
-      const gy = groundHeight(l.x, l.z, l.y + 0.3, 0.1);
+      const nx = l.x + l.vx * dt, nz = l.z + l.vz * dt;
+      // tossed loot bounces off walls instead of flying into them
+      const hit = queryBox(nx - 0.2, nz - 0.2, nx + 0.2, nz + 0.2).some((c) => !c.ramp && !c.noBlock && l.y + 0.3 > c.minY && l.y + 0.05 < c.maxY - 0.62);
+      if (hit) { l.vx *= -0.3; l.vz *= -0.3; } else { l.x = nx; l.z = nz; }
+      const py = l.y;
+      l.y += l.vy * dt;
+      const gy = groundHeight(l.x, l.z, Math.max(l.y, py) + 0.3, 0.1);
       if (l.y <= gy) { l.y = gy; l.settled = true; }
       l.mesh.position.set(l.x, l.y, l.z);
     }
     const dx = l.x - px, dz = l.z - pz;
     const near = dx * dx + dz * dz < 3600;
+    // if the floor under it was destroyed, let it fall again
+    if (l.settled && ((l.chk = (l.chk || 0) - dt) <= 0)) {
+      l.chk = 0.5 + Math.random() * 0.2;
+      if (l.y > groundHeight(l.x, l.z, l.y + 0.05, 0.1) + 0.08) { l.settled = false; l.vx = l.vz = l.vy = 0; }
+    }
     l.mesh.visible = near;
     if (near && l.model) { l.model.rotation.y = time * 1.5 + l.spin; l.model.position.y = (l.item.kind === 'weapon' || l.item.kind === 'heal' ? 0.55 : 0.2) + Math.sin(time * 2 + l.spin) * 0.07; }
   }

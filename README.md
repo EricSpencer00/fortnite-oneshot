@@ -65,4 +65,6 @@ To test from the dev console: `__osr.startMatch()` starts a match, and `__osr.si
 
 QA suite (58 checks covering the drop, looting, chests, shooting, reloads, heals, building, harvesting, storm, scope, death, restart, Magic Mouse input, emotes, llamas, supply drops, XP, the victory flow and full matches): open the game, then run `await import('./tests/qa.js')` in the console and read `window.__qa`.
 
+Soak test (simulates full matches and checks every tick for characters inside walls or under the ground, stuck bots, loot inside walls or under the ground, and matches that never finish): open the game with `?soak=10` in the URL, run `await import('./tests/soak.js')` in the console, then read `window.__soak`.
+
 The earlier Rust/macroquad and Godot builds are still in git history.

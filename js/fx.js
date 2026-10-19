@@ -24,7 +24,12 @@ export function initFx(scene) {
   partCol = new Float32Array(MAX_PARTS * 3);
   partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3).setUsage(THREE.DynamicDrawUsage));
   partGeo.setAttribute('color', new THREE.BufferAttribute(partCol, 3).setUsage(THREE.DynamicDrawUsage));
-  const pm = new THREE.PointsMaterial({ size: 0.22, vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true });
+  // soft round sprite instead of square points
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const x = c.getContext('2d'); const gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+  const pm = new THREE.PointsMaterial({ size: 0.26, map: new THREE.CanvasTexture(c), vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true, alphaTest: 0.02 });
   const pts = new THREE.Points(partGeo, pm);
   pts.frustumCulled = false;
   scene.add(pts);

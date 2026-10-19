@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BOT_COUNT, BOT_NAMES, PLAYER, WEAPONS, MATS, HALF } from './config.js';
 import { G } from './state.js';
 import { buildTerrainMesh, renderMapImage, terrainHeight, buildHeightField } from './terrain.js';
-import { makeGrass, makeWater, addSway, initEnv, updateEnv } from './env.js';
+import { makeGrass, makeWater, addSway, initEnv, updateEnv, setGrassBlockers } from './env.js';
 import { buildWorld, restoreNodes } from './world.js';
 import { moveActor, rayWorld } from './physics.js';
 import { Actor } from './actor.js';
@@ -617,7 +617,7 @@ function makePlayer() {
 }
 
 // ------------------------------------------------------------------ loop
-let simNow = 0;
+let simNow = 0, blockT = 0;
 let last = performance.now(), fpsAcc = 0, fpsN = 0, fpsCheckT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
@@ -626,7 +626,10 @@ function frame(now) {
   tick(dt, now);
 }
 function tick(dt, now) {
-  if (G.player) updateEnv(now / 1000, G.phase === 'menu' ? camera.position : G.player.pos);
+  if (G.player) {
+    updateEnv(now / 1000, G.phase === 'menu' ? camera.position : G.player.pos);
+    if ((blockT -= dt) <= 0) { blockT = 0.25; setGrassBlockers(G.builds, G.player.pos); }
+  }
   if (G.phase === 'play' || G.phase === 'bus' || G.phase === 'end') {
     if (G.phase !== 'end') updateMatch(dt);
     else { G.time += 0; for (const b of bots) b.update(dt, false); }
@@ -638,7 +641,12 @@ function tick(dt, now) {
     syncStormVisual(G.storm, now / 1000);
     const px = G.player.pos.x, pz = G.player.pos.z;
     for (const a of G.actors) {
-      if (a.isPlayer) { a.syncVisual(dt, true); a.ch.root.visible = a.ch.root.visible && camera.position.distanceTo(a.chest) > 0.7 && !view.scoped; continue; }
+      if (a.isPlayer) {
+        a.syncVisual(dt, true);
+        // never let the camera sit inside our own robot (tight rooms, looking straight up)
+        a.ch.root.visible = a.ch.root.visible && camera.position.distanceTo(a.chest) > 1.0 && camera.position.distanceTo(a.headPos) > 1.05 && !view.scoped;
+        continue;
+      }
       const d2 = (a.pos.x - px) ** 2 + (a.pos.z - pz) ** 2;
       a.syncVisual(dt, d2 < 260 * 260);
     }

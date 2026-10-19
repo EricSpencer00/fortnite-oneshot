@@ -99,6 +99,7 @@ export function moveActor(a, dt, r, h) {
   if (a.vel.y < -55) a.vel.y = -55;
   const p = a.pos;
   const step = a.onGround ? 0.62 : 0.25;
+  const px0 = p.x, pz0 = p.z;
 
   // horizontal, axis-separated
   for (let axis = 0; axis < 2; axis++) {
@@ -122,13 +123,31 @@ export function moveActor(a, dt, r, h) {
     }
   }
 
-  // keep on the island
+  // keep on the island (before depenetration so walls always win)
   const dist = Math.hypot(p.x, p.z);
   const lim = HALF - 4;
   if (dist > lim) { p.x *= lim / dist; p.z *= lim / dist; }
 
+  // depenetrate: if something appeared inside us (a fresh build piece, a corner
+  // squeeze), push out along the shallowest axis
+  {
+    const list = queryBox(p.x - r, p.z - r, p.x + r, p.z + r);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c.ramp || c.noBlock || c.maxY <= p.y + step || c.minY >= p.y + h) continue;
+      const ox1 = p.x + r - c.minX, ox2 = c.maxX - (p.x - r);
+      const oz1 = p.z + r - c.minZ, oz2 = c.maxZ - (p.z - r);
+      if (ox1 <= 0 || ox2 <= 0 || oz1 <= 0 || oz2 <= 0) continue;
+      const m = Math.min(ox1, ox2, oz1, oz2);
+      if (m === ox1) p.x -= ox1 + 0.001; else if (m === ox2) p.x += ox2 + 0.001;
+      else if (m === oz1) p.z -= oz1 + 0.001; else p.z += oz2 + 0.001;
+    }
+  }
+
+
   // vertical
   const wasGround = a.onGround;
+  const prevY = p.y;
   p.y += a.vel.y * dt;
   // ceiling
   if (a.vel.y > 0) {
@@ -141,8 +160,30 @@ export function moveActor(a, dt, r, h) {
       }
     }
   }
-  const g = groundHeight(p.x, p.z, p.y, r * 0.7, step);
+  // full footprint so feet never sink into low lips (house foundations, floor edges)
+  // swept: any surface we passed through this tick counts (no tunnelling when falling fast)
+  let g = groundHeight(p.x, p.z, Math.max(p.y, prevY), r * 0.95, step);
+  // walking up a slope/ramp into a low ceiling: refuse the horizontal move
+  if (g > prevY + 0.01) {
+    const list = queryBox(p.x - r * 0.8, p.z - r * 0.8, p.x + r * 0.8, p.z + r * 0.8);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c.ramp || c.noBlock || c.minY <= prevY + 0.5) continue;
+      if (g + h > c.minY) { p.x = px0; p.z = pz0; a.vel.x = a.vel.z = 0; g = groundHeight(p.x, p.z, Math.max(p.y, prevY), r * 0.95, step); break; }
+    }
+  }
   a.groundY = g;
+  // head inside a ceiling (low floor above, any cause): push down, or undo the step if there's no room
+  {
+    const list = queryBox(p.x - r * 0.95, p.z - r * 0.95, p.x + r * 0.95, p.z + r * 0.95);
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c.ramp || c.noBlock || c.minY <= p.y + 0.5 || c.minY >= p.y + h) continue;
+      if (c.minY - h >= g - 0.01) { p.y = Math.min(p.y, c.minY - h - 0.001); if (a.vel.y > 0) a.vel.y = 0; }
+      else { p.x = px0; p.z = pz0; a.vel.x = a.vel.z = 0; p.y = Math.min(p.y, Math.max(prevY, groundHeight(p.x, p.z, prevY, r * 0.95, step))); g = Math.min(g, p.y); }
+      break;
+    }
+  }
   if (p.y <= g) {
     p.y = g; if (a.vel.y < 0) { a.landSpeed = -a.vel.y; a.vel.y = 0; }
     a.onGround = true;
